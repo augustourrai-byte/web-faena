@@ -695,16 +695,54 @@ function exportExcel(headers, rows, filename){
   XLSX.writeFile(wb, `${filename}.xlsx`);
 }
 
-function exportPDF(headers, rows, filename){
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation:"landscape" });
+function enviarCasoRacionesABitacora(row){
+  const diferencia = Number(row.real || 0) - Number(row.curva || 0);
+  const porcentaje = row.curva > 0 ? ((diferencia / row.curva) * 100) : 0;
 
-  doc.autoTable({
-    head:[headers],
-    body:rows
-  });
+  let semaforo = "Medio";
+  if (Math.abs(porcentaje) >= 10 || row.curva === 0) semaforo = "Alto";
+  if (Math.abs(porcentaje) < 5) semaforo = "Bajo";
 
-  doc.save(`${filename}.pdf`);
+  const titulo = `Desviación raciones - ${row.empresa} - ${row.servicio}`;
+
+  const detalle =
+`Fecha: ${row.fecha}
+Empresa: ${row.empresa}
+Servicio: ${row.servicio}
+Sistema: ${row.sistema}
+Manual: ${row.manual}
+Real: ${row.real}
+Curva: ${row.curva}
+Diferencia: ${diferencia}
+Desviación: ${porcentaje.toFixed(1)}%
+Cobro calculado: ${row.cobro}
+
+Caso generado desde módulo Control de Raciones.`;
+
+  const nuevoCaso = {
+    id: Date.now(),
+    fecha: new Date().toISOString().slice(0, 10),
+    titulo,
+    detalle,
+    responsable: "Augusto Urra",
+    categoria: "Food",
+    tipo: "Desviación operacional",
+    empresa: row.empresa,
+    fecha_compromiso: "",
+    monto: "",
+    edp: "No",
+    estado: "Abierto",
+    semaforo
+  };
+
+  const existentes = JSON.parse(localStorage.getItem("faena_bitacora_operativa") || "[]");
+
+  localStorage.setItem(
+    "faena_bitacora_operativa",
+    JSON.stringify([nuevoCaso, ...existentes])
+  );
+
+  alert("Caso enviado a Bitácora Operativa.");
 }
 
 /* =========================
@@ -2164,6 +2202,7 @@ function renderComparativos(){
               <th class="text-right">Real</th>
               <th class="text-right">Curva</th>
               <th class="text-right">Cobro</th>
+<th class="text-right">Acción</th>
             </tr>
           </thead>
           <tbody>
@@ -2179,6 +2218,14 @@ function renderComparativos(){
                   <td class="text-right">${formatNumber(r.real)}</td>
                   <td class="text-right">${formatNumber(r.curva)}</td>
                   <td class="text-right font-bold">${formatNumber(r.cobro)}</td>
+<td class="text-right">
+  <button
+    class="rounded-xl bg-slate-900 text-white px-3 py-2 font-semibold"
+    data-bitacora-raciones='${JSON.stringify(r).replaceAll("'", "&apos;")}'
+  >
+    Enviar a bitácora
+  </button>
+</td>
                 </tr>
               `).join("")
               : `<tr><td colspan="8" class="empty">Sin información.</td></tr>`
@@ -2542,8 +2589,16 @@ function renderApp(){
       break;
 
     case "comparativos":
-      app.innerHTML = renderComparativos();
-      break;
+  app.innerHTML = renderComparativos();
+
+  document.querySelectorAll("[data-bitacora-raciones]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const row = JSON.parse(btn.dataset.bitacoraRaciones);
+      enviarCasoRacionesABitacora(row);
+    });
+  });
+
+  break;
 
     case "cobro":
       app.innerHTML = renderCobro();
