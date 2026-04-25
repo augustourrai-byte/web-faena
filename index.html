@@ -18,206 +18,591 @@
 
   <script type="text/babel">
 
-    function NotasPendientes() {
-  const [notas, setNotas] = React.useState(() => {
-    const guardadas = localStorage.getItem("faena_notas_pendientes");
-    return guardadas ? JSON.parse(guardadas) : [];
+function NotasPendientes() {
+  const [casos, setCasos] = React.useState(() => {
+    const guardados = localStorage.getItem("faena_bitacora_operativa");
+    return guardados ? JSON.parse(guardados) : [];
   });
 
-  const [form, setForm] = React.useState({
+  const [vista, setVista] = React.useState("resumen");
+  const [editandoId, setEditandoId] = React.useState(null);
+
+  const formInicial = {
     fecha: new Date().toISOString().slice(0, 10),
-    categoria: "Operacional",
-    responsable: "",
     titulo: "",
     detalle: "",
-    estado: "Pendiente"
-  });
+    responsable: "",
+    categoria: "Operacional",
+    tipo: "Tema comercial",
+    empresa: "",
+    fecha_compromiso: "",
+    monto: "",
+    edp: "No",
+    estado: "Abierto",
+    semaforo: "Medio"
+  };
+
+  const [form, setForm] = React.useState(formInicial);
 
   React.useEffect(() => {
-    localStorage.setItem("faena_notas_pendientes", JSON.stringify(notas));
-  }, [notas]);
+    localStorage.setItem("faena_bitacora_operativa", JSON.stringify(casos));
+  }, [casos]);
 
-  const agregarNota = () => {
+  const hoy = new Date().toISOString().slice(0, 10);
+
+  const estaVencido = (caso) => {
+    return caso.estado !== "Cerrado" && caso.fecha_compromiso && caso.fecha_compromiso < hoy;
+  };
+
+  const proximoAVencer = (caso) => {
+    if (!caso.fecha_compromiso || caso.estado === "Cerrado") return false;
+    const fechaHoy = new Date(hoy);
+    const fechaCompromiso = new Date(caso.fecha_compromiso);
+    const diferencia = Math.ceil((fechaCompromiso - fechaHoy) / (1000 * 60 * 60 * 24));
+    return diferencia >= 0 && diferencia <= 3;
+  };
+
+  const paraCobrar = casos.filter(c => c.estado !== "Cerrado" && c.edp === "Si").length;
+  const sinValidar = casos.filter(c => c.estado !== "Cerrado" && c.edp === "No").length;
+  const riesgosAbiertos = casos.filter(c => c.estado !== "Cerrado" && c.semaforo === "Alto").length;
+  const vencidos = casos.filter(estaVencido).length;
+  const proximos = casos.filter(proximoAVencer).length;
+  const impactoCosto = casos.filter(c => c.estado !== "Cerrado" && Number(c.monto || 0) > 0).length;
+  const inicioSinCobro = casos.filter(c => c.estado !== "Cerrado" && c.tipo === "Servicio adicional" && c.edp === "No").length;
+
+  const guardarCaso = () => {
     if (!form.titulo.trim()) {
-      alert("Debes ingresar un título para la nota.");
+      alert("Debes ingresar el título del caso.");
       return;
     }
 
-    const nuevaNota = {
-      id: Date.now(),
-      ...form
-    };
+    if (editandoId) {
+      setCasos(casos.map(c =>
+        c.id === editandoId ? { ...form, id: editandoId } : c
+      ));
+      setEditandoId(null);
+    } else {
+      const nuevoCaso = {
+        id: Date.now(),
+        ...form
+      };
+      setCasos([nuevoCaso, ...casos]);
+    }
 
-    setNotas([nuevaNota, ...notas]);
-
-    setForm({
-      fecha: new Date().toISOString().slice(0, 10),
-      categoria: "Operacional",
-      responsable: "",
-      titulo: "",
-      detalle: "",
-      estado: "Pendiente"
-    });
+    setForm(formInicial);
+    setVista("resumen");
   };
 
-  const eliminarNota = (id) => {
-    if (confirm("¿Eliminar esta nota?")) {
-      setNotas(notas.filter(n => n.id !== id));
+  const editarCaso = (caso) => {
+    setForm(caso);
+    setEditandoId(caso.id);
+    setVista("nuevo");
+  };
+
+  const eliminarCaso = (id) => {
+    if (confirm("¿Eliminar este caso de la bitácora?")) {
+      setCasos(casos.filter(c => c.id !== id));
     }
   };
 
-  const cambiarEstado = (id, nuevoEstado) => {
-    setNotas(notas.map(n =>
-      n.id === id ? { ...n, estado: nuevoEstado } : n
+  const marcarGestion = (id) => {
+    setCasos(casos.map(c =>
+      c.id === id ? { ...c, estado: "En gestión" } : c
     ));
   };
+
+  const cerrarCaso = (id) => {
+    setCasos(casos.map(c =>
+      c.id === id ? { ...c, estado: "Cerrado" } : c
+    ));
+  };
+
+  const vaciarTodo = () => {
+    if (confirm("¿Seguro que deseas eliminar toda la bitácora?")) {
+      setCasos([]);
+    }
+  };
+
+  const exportarCSV = () => {
+    const encabezados = [
+      "Fecha",
+      "Titulo",
+      "Detalle",
+      "Responsable",
+      "Categoria",
+      "Tipo",
+      "Empresa",
+      "Fecha compromiso",
+      "Monto",
+      "EDP",
+      "Estado",
+      "Semaforo"
+    ];
+
+    const filas = casos.map(c => [
+      c.fecha,
+      c.titulo,
+      c.detalle,
+      c.responsable,
+      c.categoria,
+      c.tipo,
+      c.empresa,
+      c.fecha_compromiso,
+      c.monto,
+      c.edp,
+      c.estado,
+      c.semaforo
+    ]);
+
+    const csv = [encabezados, ...filas]
+      .map(fila => fila.map(valor => `"${String(valor || "").replaceAll('"', '""')}"`).join(";"))
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "bitacora_operativa.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const casosAtencion = casos.filter(c => c.estado !== "Cerrado");
 
   return (
     <div className="space-y-6">
 
-      <div>
-        <h1 className="text-2xl font-bold">Notas / Pendientes</h1>
-        <p className="text-gray-600">Libro de obras digital para registrar compromisos, desviaciones, acuerdos y pendientes de faena.</p>
-      </div>
-
-      <div className="bg-white p-4 rounded shadow grid grid-cols-1 md:grid-cols-3 gap-4">
-
+      <div className="flex justify-between items-start border-b pb-4">
         <div>
-          <label className="text-sm font-semibold">Fecha</label>
-          <input
-            type="date"
-            className="w-full border rounded p-2"
-            value={form.fecha}
-            onChange={e => setForm({ ...form, fecha: e.target.value })}
-          />
+          <h1 className="text-2xl font-bold">Bitácora Operativa</h1>
+          <p className="text-gray-600">Control personal de hechos, solicitudes, seguimiento, riesgos y cobro.</p>
         </div>
 
-        <div>
-          <label className="text-sm font-semibold">Categoría</label>
-          <select
-            className="w-full border rounded p-2"
-            value={form.categoria}
-            onChange={e => setForm({ ...form, categoria: e.target.value })}
-          >
-            <option>Operacional</option>
-            <option>Food</option>
-            <option>Facility</option>
-            <option>Contratistas</option>
-            <option>Mandante</option>
-            <option>Labor</option>
-            <option>Gastos</option>
-            <option>Seguridad</option>
-            <option>Calidad</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="text-sm font-semibold">Responsable</label>
-          <input
-            className="w-full border rounded p-2"
-            placeholder="Nombre responsable"
-            value={form.responsable}
-            onChange={e => setForm({ ...form, responsable: e.target.value })}
-          />
-        </div>
-
-        <div className="md:col-span-2">
-          <label className="text-sm font-semibold">Título / Tema</label>
-          <input
-            className="w-full border rounded p-2"
-            placeholder="Ej: Pendiente cobro Casino CAES"
-            value={form.titulo}
-            onChange={e => setForm({ ...form, titulo: e.target.value })}
-          />
-        </div>
-
-        <div>
-          <label className="text-sm font-semibold">Estado</label>
-          <select
-            className="w-full border rounded p-2"
-            value={form.estado}
-            onChange={e => setForm({ ...form, estado: e.target.value })}
-          >
-            <option>Pendiente</option>
-            <option>En curso</option>
-            <option>Cerrado</option>
-          </select>
-        </div>
-
-        <div className="md:col-span-3">
-          <label className="text-sm font-semibold">Detalle</label>
-          <textarea
-            className="w-full border rounded p-2"
-            rows="3"
-            placeholder="Describe el pendiente, acuerdo o situación levantada..."
-            value={form.detalle}
-            onChange={e => setForm({ ...form, detalle: e.target.value })}
-          />
-        </div>
-
-        <div className="md:col-span-3">
+        <div className="flex gap-2">
           <button
-            onClick={agregarNota}
-            className="bg-gray-900 text-white px-4 py-2 rounded hover:bg-gray-700"
+            onClick={() => setVista("resumen")}
+            className={`px-4 py-2 rounded-lg border ${vista === "resumen" ? "bg-gray-900 text-white" : "bg-white"}`}
           >
-            Guardar nota
+            Resumen de atención
+          </button>
+
+          <button
+            onClick={() => {
+              setVista("nuevo");
+              setEditandoId(null);
+              setForm(formInicial);
+            }}
+            className={`px-4 py-2 rounded-lg border ${vista === "nuevo" ? "bg-gray-900 text-white" : "bg-white"}`}
+          >
+            Nuevo ingreso
+          </button>
+
+          <button
+            onClick={() => setVista("historial")}
+            className={`px-4 py-2 rounded-lg border ${vista === "historial" ? "bg-gray-900 text-white" : "bg-white"}`}
+          >
+            Historial
           </button>
         </div>
       </div>
 
-      <div className="bg-white rounded shadow overflow-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-200">
-            <tr>
-              <th className="p-2 text-left">Fecha</th>
-              <th className="p-2 text-left">Categoría</th>
-              <th className="p-2 text-left">Tema</th>
-              <th className="p-2 text-left">Responsable</th>
-              <th className="p-2 text-left">Estado</th>
-              <th className="p-2 text-left">Detalle</th>
-              <th className="p-2 text-left">Acción</th>
-            </tr>
-          </thead>
-          <tbody>
-            {notas.length === 0 && (
-              <tr>
-                <td colSpan="7" className="p-4 text-center text-gray-500">
-                  Aún no existen notas registradas.
-                </td>
-              </tr>
+      <div className="flex gap-2">
+        <button onClick={exportarCSV} className="bg-white border px-4 py-2 rounded-lg hover:bg-gray-100">
+          Exportar CSV
+        </button>
+
+        <button onClick={vaciarTodo} className="bg-red-50 text-red-700 border border-red-300 px-4 py-2 rounded-lg hover:bg-red-100">
+          Vaciar todo
+        </button>
+      </div>
+
+      {vista === "resumen" && (
+        <div className="space-y-6">
+
+          <div className="bg-white rounded-xl shadow p-4">
+            <h2 className="text-xl font-bold">Resumen de atención</h2>
+            <p className="text-gray-600 mb-4">Todas las tarjetas de atención inmediata se reflejan abajo.</p>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 xl:grid-cols-7 gap-3">
+
+              <div className="bg-green-50 border border-green-300 rounded-xl p-4">
+                <div className="text-sm">Para cobrar</div>
+                <div className="text-3xl font-bold">{paraCobrar}</div>
+                <div className="text-sm text-gray-600">Listos para EDP</div>
+              </div>
+
+              <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4">
+                <div className="text-sm">Sin validar</div>
+                <div className="text-3xl font-bold">{sinValidar}</div>
+                <div className="text-sm text-gray-600">Ejecutados sin respaldo</div>
+              </div>
+
+              <div className="bg-red-50 border border-red-300 rounded-xl p-4">
+                <div className="text-sm">Riesgos abiertos</div>
+                <div className="text-3xl font-bold">{riesgosAbiertos}</div>
+                <div className="text-sm text-gray-600">Impacto no cerrado</div>
+              </div>
+
+              <div className="bg-gray-50 border border-gray-300 rounded-xl p-4">
+                <div className="text-sm">Vencidos</div>
+                <div className="text-3xl font-bold">{vencidos}</div>
+                <div className="text-sm text-gray-600">Fuera de plazo</div>
+              </div>
+
+              <div className="bg-orange-50 border border-orange-300 rounded-xl p-4">
+                <div className="text-sm">Próximo a vencer</div>
+                <div className="text-3xl font-bold">{proximos}</div>
+                <div className="text-sm text-gray-600">Antes de 3 días</div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-300 rounded-xl p-4">
+                <div className="text-sm">Impacto en costo</div>
+                <div className="text-3xl font-bold">{impactoCosto}</div>
+                <div className="text-sm text-gray-600">Movimientos abiertos</div>
+              </div>
+
+              <div className="bg-purple-50 border border-purple-300 rounded-xl p-4">
+                <div className="text-sm">Inicio sin cobro</div>
+                <div className="text-3xl font-bold">{inicioSinCobro}</div>
+                <div className="text-sm text-gray-600">Falta cierre comercial</div>
+              </div>
+
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow p-4">
+            <h2 className="text-xl font-bold">Atención inmediata</h2>
+            <p className="text-gray-600 mb-4">Casos que efectivamente requieren revisión, cobro, validación o cierre.</p>
+
+            {casosAtencion.length === 0 && (
+              <div className="text-center text-gray-500 p-6 border rounded-xl">
+                No existen casos abiertos.
+              </div>
             )}
 
-            {notas.map(nota => (
-              <tr key={nota.id} className="border-t align-top">
-                <td className="p-2">{nota.fecha}</td>
-                <td className="p-2">{nota.categoria}</td>
-                <td className="p-2 font-semibold">{nota.titulo}</td>
-                <td className="p-2">{nota.responsable}</td>
-                <td className="p-2">
-                  <select
-                    className="border rounded p-1"
-                    value={nota.estado}
-                    onChange={e => cambiarEstado(nota.id, e.target.value)}
-                  >
-                    <option>Pendiente</option>
-                    <option>En curso</option>
-                    <option>Cerrado</option>
-                  </select>
-                </td>
-                <td className="p-2 max-w-md whitespace-pre-wrap">{nota.detalle}</td>
-                <td className="p-2">
-                  <button
-                    onClick={() => eliminarNota(nota.id)}
-                    className="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700"
-                  >
-                    Eliminar
-                  </button>
-                </td>
+            <div className="space-y-4">
+              {casosAtencion.map(caso => (
+                <div key={caso.id} className="border rounded-xl p-4 bg-gray-50">
+
+                  <div className="flex justify-between gap-4">
+                    <div className="flex-1">
+
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {estaVencido(caso) && (
+                          <span className="bg-gray-200 px-3 py-1 rounded-full text-xs">Vencido</span>
+                        )}
+
+                        {proximoAVencer(caso) && (
+                          <span className="bg-orange-100 px-3 py-1 rounded-full text-xs">Próximo a vencer</span>
+                        )}
+
+                        <span className={`px-3 py-1 rounded-full text-xs ${
+                          caso.semaforo === "Alto" ? "bg-red-100 text-red-700" :
+                          caso.semaforo === "Medio" ? "bg-yellow-100 text-yellow-700" :
+                          "bg-green-100 text-green-700"
+                        }`}>
+                          Semáforo {caso.semaforo}
+                        </span>
+
+                        <span className="bg-white border px-3 py-1 rounded-full text-xs">{caso.tipo}</span>
+                        <span className="bg-white border px-3 py-1 rounded-full text-xs">{caso.empresa || "Sin empresa"}</span>
+                        <span className="bg-white border px-3 py-1 rounded-full text-xs">{caso.categoria}</span>
+                      </div>
+
+                      <h3 className="text-lg font-bold">{caso.titulo}</h3>
+
+                      {estaVencido(caso) && (
+                        <p className="text-sm mt-2">
+                          <b>Atención:</b> La fecha compromiso ya venció.
+                        </p>
+                      )}
+
+                      <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mt-4 text-sm">
+                        <div><b>Fecha:</b> {caso.fecha}</div>
+                        <div><b>Estado:</b> {caso.estado}</div>
+                        <div><b>Responsable:</b> {caso.responsable || "-"}</div>
+                        <div><b>Compromiso:</b> {caso.fecha_compromiso || "-"}</div>
+                        <div><b>Monto:</b> {caso.monto ? "$" + Number(caso.monto).toLocaleString("es-CL") : "-"}</div>
+                        <div><b>EDP:</b> {caso.edp}</div>
+                      </div>
+
+                      {caso.detalle && (
+                        <div className="mt-3 text-sm text-gray-700 whitespace-pre-wrap">
+                          {caso.detalle}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="w-56 space-y-2">
+                      <button
+                        onClick={() => marcarGestion(caso.id)}
+                        className="w-full bg-gray-900 text-white px-4 py-2 rounded-lg"
+                      >
+                        Marcar en gestión
+                      </button>
+
+                      <button
+                        onClick={() => editarCaso(caso)}
+                        className="w-full bg-white border px-4 py-2 rounded-lg"
+                      >
+                        Editar
+                      </button>
+
+                      <button
+                        onClick={() => cerrarCaso(caso.id)}
+                        className="w-full bg-white border px-4 py-2 rounded-lg"
+                      >
+                        Cerrar caso
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {vista === "nuevo" && (
+        <div className="bg-white rounded-xl shadow p-4">
+          <h2 className="text-xl font-bold mb-4">
+            {editandoId ? "Editar caso" : "Nuevo ingreso"}
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+            <div>
+              <label className="text-sm font-semibold">Fecha</label>
+              <input
+                type="date"
+                className="w-full border rounded p-2"
+                value={form.fecha}
+                onChange={e => setForm({ ...form, fecha: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold">Categoría</label>
+              <select
+                className="w-full border rounded p-2"
+                value={form.categoria}
+                onChange={e => setForm({ ...form, categoria: e.target.value })}
+              >
+                <option>Operacional</option>
+                <option>Food</option>
+                <option>Facility</option>
+                <option>Contratistas</option>
+                <option>Mandante</option>
+                <option>Labor</option>
+                <option>Gastos</option>
+                <option>Seguridad</option>
+                <option>Calidad</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold">Responsable</label>
+              <input
+                className="w-full border rounded p-2"
+                placeholder="Nombre responsable"
+                value={form.responsable}
+                onChange={e => setForm({ ...form, responsable: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold">Tipo</label>
+              <select
+                className="w-full border rounded p-2"
+                value={form.tipo}
+                onChange={e => setForm({ ...form, tipo: e.target.value })}
+              >
+                <option>Tema comercial</option>
+                <option>Servicio adicional</option>
+                <option>Cobro</option>
+                <option>EDP</option>
+                <option>Exámenes</option>
+                <option>Desviación operacional</option>
+                <option>Riesgo costo</option>
+                <option>Solicitud mandante</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold">Empresa / Área</label>
+              <input
+                className="w-full border rounded p-2"
+                placeholder="Ej: Codelco, CML, Cine Inca"
+                value={form.empresa}
+                onChange={e => setForm({ ...form, empresa: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold">Semáforo</label>
+              <select
+                className="w-full border rounded p-2"
+                value={form.semaforo}
+                onChange={e => setForm({ ...form, semaforo: e.target.value })}
+              >
+                <option>Alto</option>
+                <option>Medio</option>
+                <option>Bajo</option>
+              </select>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="text-sm font-semibold">Título / Tema</label>
+              <input
+                className="w-full border rounded p-2"
+                placeholder="Ej: Ingresar EDP mes de febrero a SN"
+                value={form.titulo}
+                onChange={e => setForm({ ...form, titulo: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold">Estado</label>
+              <select
+                className="w-full border rounded p-2"
+                value={form.estado}
+                onChange={e => setForm({ ...form, estado: e.target.value })}
+              >
+                <option>Abierto</option>
+                <option>En gestión</option>
+                <option>Cerrado</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold">Fecha compromiso</label>
+              <input
+                type="date"
+                className="w-full border rounded p-2"
+                value={form.fecha_compromiso}
+                onChange={e => setForm({ ...form, fecha_compromiso: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold">Monto</label>
+              <input
+                className="w-full border rounded p-2"
+                placeholder="Ej: 2500000"
+                value={form.monto}
+                onChange={e => setForm({ ...form, monto: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold">EDP</label>
+              <select
+                className="w-full border rounded p-2"
+                value={form.edp}
+                onChange={e => setForm({ ...form, edp: e.target.value })}
+              >
+                <option>No</option>
+                <option>Si</option>
+              </select>
+            </div>
+
+            <div className="md:col-span-3">
+              <label className="text-sm font-semibold">Detalle</label>
+              <textarea
+                className="w-full border rounded p-2"
+                rows="4"
+                placeholder="Describe el hecho, solicitud, riesgo, compromiso o gestión pendiente..."
+                value={form.detalle}
+                onChange={e => setForm({ ...form, detalle: e.target.value })}
+              />
+            </div>
+
+            <div className="md:col-span-3 flex gap-2">
+              <button
+                onClick={guardarCaso}
+                className="bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
+              >
+                {editandoId ? "Guardar cambios" : "Guardar caso"}
+              </button>
+
+              <button
+                onClick={() => {
+                  setForm(formInicial);
+                  setEditandoId(null);
+                  setVista("resumen");
+                }}
+                className="bg-white border px-4 py-2 rounded-lg hover:bg-gray-100"
+              >
+                Cancelar
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {vista === "historial" && (
+        <div className="bg-white rounded-xl shadow overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-200">
+              <tr>
+                <th className="p-2 text-left">Fecha</th>
+                <th className="p-2 text-left">Título</th>
+                <th className="p-2 text-left">Categoría</th>
+                <th className="p-2 text-left">Tipo</th>
+                <th className="p-2 text-left">Empresa</th>
+                <th className="p-2 text-left">Responsable</th>
+                <th className="p-2 text-left">Compromiso</th>
+                <th className="p-2 text-left">Monto</th>
+                <th className="p-2 text-left">EDP</th>
+                <th className="p-2 text-left">Estado</th>
+                <th className="p-2 text-left">Acción</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+
+            <tbody>
+              {casos.length === 0 && (
+                <tr>
+                  <td colSpan="11" className="p-4 text-center text-gray-500">
+                    Aún no existen registros en la bitácora.
+                  </td>
+                </tr>
+              )}
+
+              {casos.map(caso => (
+                <tr key={caso.id} className="border-t">
+                  <td className="p-2">{caso.fecha}</td>
+                  <td className="p-2 font-semibold">{caso.titulo}</td>
+                  <td className="p-2">{caso.categoria}</td>
+                  <td className="p-2">{caso.tipo}</td>
+                  <td className="p-2">{caso.empresa}</td>
+                  <td className="p-2">{caso.responsable}</td>
+                  <td className="p-2">{caso.fecha_compromiso}</td>
+                  <td className="p-2">{caso.monto ? "$" + Number(caso.monto).toLocaleString("es-CL") : "-"}</td>
+                  <td className="p-2">{caso.edp}</td>
+                  <td className="p-2">{caso.estado}</td>
+                  <td className="p-2 flex gap-2">
+                    <button
+                      onClick={() => editarCaso(caso)}
+                      className="bg-white border px-3 py-1 rounded"
+                    >
+                      Editar
+                    </button>
+
+                    <button
+                      onClick={() => eliminarCaso(caso.id)}
+                      className="bg-red-600 text-white px-3 py-1 rounded"
+                    >
+                      Eliminar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
     </div>
   );
