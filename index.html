@@ -18,6 +18,211 @@
 
   <script type="text/babel">
 
+    function NotasPendientes() {
+  const [notas, setNotas] = React.useState(() => {
+    const guardadas = localStorage.getItem("faena_notas_pendientes");
+    return guardadas ? JSON.parse(guardadas) : [];
+  });
+
+  const [form, setForm] = React.useState({
+    fecha: new Date().toISOString().slice(0, 10),
+    categoria: "Operacional",
+    responsable: "",
+    titulo: "",
+    detalle: "",
+    estado: "Pendiente"
+  });
+
+  React.useEffect(() => {
+    localStorage.setItem("faena_notas_pendientes", JSON.stringify(notas));
+  }, [notas]);
+
+  const agregarNota = () => {
+    if (!form.titulo.trim()) {
+      alert("Debes ingresar un título para la nota.");
+      return;
+    }
+
+    const nuevaNota = {
+      id: Date.now(),
+      ...form
+    };
+
+    setNotas([nuevaNota, ...notas]);
+
+    setForm({
+      fecha: new Date().toISOString().slice(0, 10),
+      categoria: "Operacional",
+      responsable: "",
+      titulo: "",
+      detalle: "",
+      estado: "Pendiente"
+    });
+  };
+
+  const eliminarNota = (id) => {
+    if (confirm("¿Eliminar esta nota?")) {
+      setNotas(notas.filter(n => n.id !== id));
+    }
+  };
+
+  const cambiarEstado = (id, nuevoEstado) => {
+    setNotas(notas.map(n =>
+      n.id === id ? { ...n, estado: nuevoEstado } : n
+    ));
+  };
+
+  return (
+    <div className="space-y-6">
+
+      <div>
+        <h1 className="text-2xl font-bold">Notas / Pendientes</h1>
+        <p className="text-gray-600">Libro de obras digital para registrar compromisos, desviaciones, acuerdos y pendientes de faena.</p>
+      </div>
+
+      <div className="bg-white p-4 rounded shadow grid grid-cols-1 md:grid-cols-3 gap-4">
+
+        <div>
+          <label className="text-sm font-semibold">Fecha</label>
+          <input
+            type="date"
+            className="w-full border rounded p-2"
+            value={form.fecha}
+            onChange={e => setForm({ ...form, fecha: e.target.value })}
+          />
+        </div>
+
+        <div>
+          <label className="text-sm font-semibold">Categoría</label>
+          <select
+            className="w-full border rounded p-2"
+            value={form.categoria}
+            onChange={e => setForm({ ...form, categoria: e.target.value })}
+          >
+            <option>Operacional</option>
+            <option>Food</option>
+            <option>Facility</option>
+            <option>Contratistas</option>
+            <option>Mandante</option>
+            <option>Labor</option>
+            <option>Gastos</option>
+            <option>Seguridad</option>
+            <option>Calidad</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="text-sm font-semibold">Responsable</label>
+          <input
+            className="w-full border rounded p-2"
+            placeholder="Nombre responsable"
+            value={form.responsable}
+            onChange={e => setForm({ ...form, responsable: e.target.value })}
+          />
+        </div>
+
+        <div className="md:col-span-2">
+          <label className="text-sm font-semibold">Título / Tema</label>
+          <input
+            className="w-full border rounded p-2"
+            placeholder="Ej: Pendiente cobro Casino CAES"
+            value={form.titulo}
+            onChange={e => setForm({ ...form, titulo: e.target.value })}
+          />
+        </div>
+
+        <div>
+          <label className="text-sm font-semibold">Estado</label>
+          <select
+            className="w-full border rounded p-2"
+            value={form.estado}
+            onChange={e => setForm({ ...form, estado: e.target.value })}
+          >
+            <option>Pendiente</option>
+            <option>En curso</option>
+            <option>Cerrado</option>
+          </select>
+        </div>
+
+        <div className="md:col-span-3">
+          <label className="text-sm font-semibold">Detalle</label>
+          <textarea
+            className="w-full border rounded p-2"
+            rows="3"
+            placeholder="Describe el pendiente, acuerdo o situación levantada..."
+            value={form.detalle}
+            onChange={e => setForm({ ...form, detalle: e.target.value })}
+          />
+        </div>
+
+        <div className="md:col-span-3">
+          <button
+            onClick={agregarNota}
+            className="bg-gray-900 text-white px-4 py-2 rounded hover:bg-gray-700"
+          >
+            Guardar nota
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded shadow overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-200">
+            <tr>
+              <th className="p-2 text-left">Fecha</th>
+              <th className="p-2 text-left">Categoría</th>
+              <th className="p-2 text-left">Tema</th>
+              <th className="p-2 text-left">Responsable</th>
+              <th className="p-2 text-left">Estado</th>
+              <th className="p-2 text-left">Detalle</th>
+              <th className="p-2 text-left">Acción</th>
+            </tr>
+          </thead>
+          <tbody>
+            {notas.length === 0 && (
+              <tr>
+                <td colSpan="7" className="p-4 text-center text-gray-500">
+                  Aún no existen notas registradas.
+                </td>
+              </tr>
+            )}
+
+            {notas.map(nota => (
+              <tr key={nota.id} className="border-t align-top">
+                <td className="p-2">{nota.fecha}</td>
+                <td className="p-2">{nota.categoria}</td>
+                <td className="p-2 font-semibold">{nota.titulo}</td>
+                <td className="p-2">{nota.responsable}</td>
+                <td className="p-2">
+                  <select
+                    className="border rounded p-1"
+                    value={nota.estado}
+                    onChange={e => cambiarEstado(nota.id, e.target.value)}
+                  >
+                    <option>Pendiente</option>
+                    <option>En curso</option>
+                    <option>Cerrado</option>
+                  </select>
+                </td>
+                <td className="p-2 max-w-md whitespace-pre-wrap">{nota.detalle}</td>
+                <td className="p-2">
+                  <button
+                    onClick={() => eliminarNota(nota.id)}
+                    className="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700"
+                  >
+                    Eliminar
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  );
+}
+    
     function App() {
       const [view, setView] = React.useState("dashboard");
 
@@ -27,7 +232,7 @@
             return <h1 className="text-2xl font-bold">Dashboard General</h1>;
 
           case "notas":
-            return <h1 className="text-2xl font-bold">Notas / Pendientes (Libro de Obras)</h1>;
+           return <NotasPendientes />;
 
           case "desviaciones":
             return <h1 className="text-2xl font-bold">Food Cost - Desviaciones</h1>;
