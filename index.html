@@ -25,6 +25,9 @@ function NotasPendientes() {
   const [editandoId, setEditandoId] = React.useState(null);
   const [filtroResponsable, setFiltroResponsable] = React.useState("");
   const [busqueda, setBusqueda] = React.useState("");
+  const [filtroKPI, setFiltroKPI] = React.useState("todos");
+
+  const usuarioActual = "Augusto Urra";
 
   const formInicial = {
     fecha: new Date().toISOString().slice(0, 10),
@@ -58,6 +61,18 @@ function NotasPendientes() {
     return diferencia >= 0 && diferencia <= 3;
   };
 
+  const esCritico = (caso) =>
+    estaVencido(caso) || caso.semaforo === "Alto" || proximoAVencer(caso);
+
+  const prioridadCaso = (caso) => {
+    if (estaVencido(caso) && caso.semaforo === "Alto") return 1;
+    if (estaVencido(caso)) return 2;
+    if (caso.semaforo === "Alto") return 3;
+    if (proximoAVencer(caso)) return 4;
+    if (caso.estado === "En gestión") return 5;
+    return 9;
+  };
+
   const paraCobrar = casos.filter(c => c.estado !== "Cerrado" && c.edp === "Si").length;
   const sinValidar = casos.filter(c => c.estado !== "Cerrado" && c.edp === "No").length;
   const riesgosAbiertos = casos.filter(c => c.estado !== "Cerrado" && c.semaforo === "Alto").length;
@@ -68,12 +83,7 @@ function NotasPendientes() {
 
   const responsables = [...new Set(casos.map(c => c.responsable).filter(Boolean))];
 
-  const casosAtencion = casos.filter(c => {
-    if (c.estado === "Cerrado") return false;
-
-    const esCritico = estaVencido(c) || c.semaforo === "Alto" || proximoAVencer(c);
-    if (!esCritico) return false;
-
+  const pasaFiltros = (c) => {
     if (filtroResponsable && c.responsable !== filtroResponsable) return false;
 
     if (busqueda) {
@@ -81,12 +91,52 @@ function NotasPendientes() {
       if (!texto.includes(busqueda.toLowerCase())) return false;
     }
 
+    if (filtroKPI === "paraCobrar") return c.estado !== "Cerrado" && c.edp === "Si";
+    if (filtroKPI === "sinValidar") return c.estado !== "Cerrado" && c.edp === "No";
+    if (filtroKPI === "riesgos") return c.estado !== "Cerrado" && c.semaforo === "Alto";
+    if (filtroKPI === "vencidos") return estaVencido(c);
+    if (filtroKPI === "proximos") return proximoAVencer(c);
+    if (filtroKPI === "costo") return c.estado !== "Cerrado" && Number(c.monto || 0) > 0;
+    if (filtroKPI === "sinCobro") return c.estado !== "Cerrado" && c.tipo === "Servicio adicional" && c.edp === "No";
+
     return true;
-  });
+  };
+
+  const casosAtencion = casos
+    .filter(c => c.estado !== "Cerrado")
+    .filter(c => c.estado !== "En gestión")
+    .filter(esCritico)
+    .filter(pasaFiltros)
+    .sort((a, b) => prioridadCaso(a) - prioridadCaso(b));
+
+  const casosGestion = casos
+    .filter(c => c.estado === "En gestión")
+    .filter(pasaFiltros)
+    .sort((a, b) => prioridadCaso(a) - prioridadCaso(b));
+
+  const casosHistorial = casos
+    .filter(pasaFiltros)
+    .sort((a, b) => prioridadCaso(a) - prioridadCaso(b));
+
+  const activarKPI = (kpi) => {
+    setFiltroKPI(kpi);
+    setVista("resumen");
+  };
+
+  const limpiarFiltros = () => {
+    setFiltroResponsable("");
+    setBusqueda("");
+    setFiltroKPI("todos");
+  };
 
   const guardarCaso = () => {
     if (!form.titulo.trim()) {
       alert("Debes ingresar el título del caso.");
+      return;
+    }
+
+    if (!form.responsable.trim()) {
+      alert("Debes ingresar responsable.");
       return;
     }
 
@@ -121,6 +171,10 @@ function NotasPendientes() {
     setCasos(casos.map(c => c.id === id ? { ...c, estado: "Cerrado" } : c));
   };
 
+  const reabrirCaso = (id) => {
+    setCasos(casos.map(c => c.id === id ? { ...c, estado: "Abierto" } : c));
+  };
+
   const vaciarTodo = () => {
     if (confirm("¿Seguro que deseas eliminar toda la bitácora?")) {
       setCasos([]);
@@ -144,6 +198,9 @@ function NotasPendientes() {
     URL.revokeObjectURL(url);
   };
 
+  const claseKPI = (id, base) =>
+    `${base} rounded-xl p-4 text-left hover:shadow cursor-pointer ${filtroKPI === id ? "ring-2 ring-gray-900" : ""}`;
+
   return (
     <div className="space-y-6">
 
@@ -153,14 +210,15 @@ function NotasPendientes() {
           <p className="text-gray-600">Control personal de hechos, solicitudes, seguimiento, riesgos y cobro.</p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button onClick={() => setVista("resumen")} className={`px-4 py-2 rounded-lg border ${vista === "resumen" ? "bg-gray-900 text-white" : "bg-white"}`}>Resumen de atención</button>
           <button onClick={() => { setVista("nuevo"); setEditandoId(null); setForm(formInicial); }} className={`px-4 py-2 rounded-lg border ${vista === "nuevo" ? "bg-gray-900 text-white" : "bg-white"}`}>Nuevo ingreso</button>
           <button onClick={() => setVista("historial")} className={`px-4 py-2 rounded-lg border ${vista === "historial" ? "bg-gray-900 text-white" : "bg-white"}`}>Historial</button>
+          <button onClick={() => setFiltroResponsable(usuarioActual)} className="px-4 py-2 rounded-lg border bg-blue-50 text-blue-800">Mis casos</button>
         </div>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         <button onClick={exportarCSV} className="bg-white border px-4 py-2 rounded-lg hover:bg-gray-100">Exportar CSV</button>
         <button onClick={vaciarTodo} className="bg-red-50 text-red-700 border border-red-300 px-4 py-2 rounded-lg hover:bg-red-100">Vaciar todo</button>
       </div>
@@ -169,24 +227,23 @@ function NotasPendientes() {
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow p-4">
             <h2 className="text-xl font-bold">Resumen de atención</h2>
-            <p className="text-gray-600 mb-4">Todas las tarjetas de atención inmediata se reflejan abajo.</p>
+            <p className="text-gray-600 mb-4">Haz click sobre un KPI para filtrar los casos asociados.</p>
 
             <div className="grid grid-cols-1 md:grid-cols-4 xl:grid-cols-7 gap-3">
-              <div className="bg-green-50 border border-green-300 rounded-xl p-4"><div className="text-sm">Para cobrar</div><div className="text-3xl font-bold">{paraCobrar}</div><div className="text-sm text-gray-600">Listos para EDP</div></div>
-              <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4"><div className="text-sm">Sin validar</div><div className="text-3xl font-bold">{sinValidar}</div><div className="text-sm text-gray-600">Ejecutados sin respaldo</div></div>
-              <div className="bg-red-50 border border-red-300 rounded-xl p-4"><div className="text-sm">Riesgos abiertos</div><div className="text-3xl font-bold">{riesgosAbiertos}</div><div className="text-sm text-gray-600">Impacto no cerrado</div></div>
-              <div className="bg-gray-50 border border-gray-300 rounded-xl p-4"><div className="text-sm">Vencidos</div><div className="text-3xl font-bold">{vencidos}</div><div className="text-sm text-gray-600">Fuera de plazo</div></div>
-              <div className="bg-orange-50 border border-orange-300 rounded-xl p-4"><div className="text-sm">Próximo a vencer</div><div className="text-3xl font-bold">{proximos}</div><div className="text-sm text-gray-600">Antes de 3 días</div></div>
-              <div className="bg-blue-50 border border-blue-300 rounded-xl p-4"><div className="text-sm">Impacto en costo</div><div className="text-3xl font-bold">{impactoCosto}</div><div className="text-sm text-gray-600">Movimientos abiertos</div></div>
-              <div className="bg-purple-50 border border-purple-300 rounded-xl p-4"><div className="text-sm">Inicio sin cobro</div><div className="text-3xl font-bold">{inicioSinCobro}</div><div className="text-sm text-gray-600">Falta cierre comercial</div></div>
+              <button onClick={() => activarKPI("paraCobrar")} className={claseKPI("paraCobrar", "bg-green-50 border border-green-300")}><div className="text-sm">Para cobrar</div><div className="text-3xl font-bold">{paraCobrar}</div><div className="text-sm text-gray-600">Listos para EDP</div></button>
+              <button onClick={() => activarKPI("sinValidar")} className={claseKPI("sinValidar", "bg-yellow-50 border border-yellow-300")}><div className="text-sm">Sin validar</div><div className="text-3xl font-bold">{sinValidar}</div><div className="text-sm text-gray-600">Ejecutados sin respaldo</div></button>
+              <button onClick={() => activarKPI("riesgos")} className={claseKPI("riesgos", "bg-red-50 border border-red-300")}><div className="text-sm">Riesgos abiertos</div><div className="text-3xl font-bold">{riesgosAbiertos}</div><div className="text-sm text-gray-600">Impacto no cerrado</div></button>
+              <button onClick={() => activarKPI("vencidos")} className={claseKPI("vencidos", "bg-gray-50 border border-gray-300")}><div className="text-sm">Vencidos</div><div className="text-3xl font-bold">{vencidos}</div><div className="text-sm text-gray-600">Fuera de plazo</div></button>
+              <button onClick={() => activarKPI("proximos")} className={claseKPI("proximos", "bg-orange-50 border border-orange-300")}><div className="text-sm">Próximo a vencer</div><div className="text-3xl font-bold">{proximos}</div><div className="text-sm text-gray-600">Antes de 3 días</div></button>
+              <button onClick={() => activarKPI("costo")} className={claseKPI("costo", "bg-blue-50 border border-blue-300")}><div className="text-sm">Impacto en costo</div><div className="text-3xl font-bold">{impactoCosto}</div><div className="text-sm text-gray-600">Movimientos abiertos</div></button>
+              <button onClick={() => activarKPI("sinCobro")} className={claseKPI("sinCobro", "bg-purple-50 border border-purple-300")}><div className="text-sm">Inicio sin cobro</div><div className="text-3xl font-bold">{inicioSinCobro}</div><div className="text-sm text-gray-600">Falta cierre comercial</div></button>
             </div>
           </div>
 
           <div className="bg-white rounded-xl shadow p-4">
-            <h2 className="text-xl font-bold">Atención inmediata</h2>
-            <p className="text-gray-600 mb-4">Casos críticos: vencidos, próximos a vencer o con semáforo alto.</p>
+            <h2 className="text-xl font-bold">Filtros de gestión</h2>
 
-            <div className="flex flex-wrap gap-2 mb-4">
+            <div className="flex flex-wrap gap-2 mt-3">
               <input className="border rounded px-3 py-2" placeholder="Buscar..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
 
               <select className="border rounded px-3 py-2" value={filtroResponsable} onChange={e => setFiltroResponsable(e.target.value)}>
@@ -194,22 +251,38 @@ function NotasPendientes() {
                 {responsables.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
 
-              <button onClick={() => { setFiltroResponsable(""); setBusqueda(""); }} className="bg-gray-200 px-3 py-2 rounded">Limpiar filtros</button>
+              <select className="border rounded px-3 py-2" value={filtroKPI} onChange={e => setFiltroKPI(e.target.value)}>
+                <option value="todos">Todos los KPI</option>
+                <option value="paraCobrar">Para cobrar</option>
+                <option value="sinValidar">Sin validar</option>
+                <option value="riesgos">Riesgos abiertos</option>
+                <option value="vencidos">Vencidos</option>
+                <option value="proximos">Próximo a vencer</option>
+                <option value="costo">Impacto en costo</option>
+                <option value="sinCobro">Inicio sin cobro</option>
+              </select>
+
+              <button onClick={limpiarFiltros} className="bg-gray-200 px-3 py-2 rounded">Limpiar filtros</button>
             </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow p-4">
+            <h2 className="text-xl font-bold">Atención inmediata</h2>
+            <p className="text-gray-600 mb-4">Casos críticos no gestionados: vencidos, próximos a vencer o con semáforo alto.</p>
 
             {casosAtencion.length === 0 && (
-              <div className="text-center text-gray-500 p-6 border rounded-xl">
-                No existen casos críticos abiertos.
+              <div className="text-center text-gray-500 p-6 border rounded-xl bg-green-50">
+                No existen casos críticos sin gestión.
               </div>
             )}
 
             <div className="space-y-4">
               {casosAtencion.map(caso => (
-                <div key={caso.id} className="border rounded-xl p-4 bg-gray-50">
+                <div key={caso.id} className={`border rounded-xl p-4 ${estaVencido(caso) && caso.semaforo === "Alto" ? "bg-red-100 border-red-400" : estaVencido(caso) ? "bg-red-50 border-red-300" : "bg-gray-50"}`}>
                   <div className="flex justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex flex-wrap gap-2 mb-3">
-                        {estaVencido(caso) && <span className="bg-gray-200 px-3 py-1 rounded-full text-xs">Vencido</span>}
+                        {estaVencido(caso) && <span className="bg-red-200 text-red-800 px-3 py-1 rounded-full text-xs font-semibold">Vencido</span>}
                         {proximoAVencer(caso) && <span className="bg-orange-100 px-3 py-1 rounded-full text-xs">Próximo a vencer</span>}
 
                         <span className={`px-3 py-1 rounded-full text-xs ${
@@ -227,7 +300,7 @@ function NotasPendientes() {
 
                       <h3 className="text-lg font-bold">{caso.titulo}</h3>
 
-                      {estaVencido(caso) && <p className="text-sm mt-2"><b>Atención:</b> La fecha compromiso ya venció.</p>}
+                      {estaVencido(caso) && <p className="text-sm mt-2 text-red-700"><b>Atención:</b> La fecha compromiso ya venció.</p>}
 
                       <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mt-4 text-sm">
                         <div><b>Fecha:</b> {caso.fecha}</div>
@@ -245,6 +318,44 @@ function NotasPendientes() {
                       <button onClick={() => marcarGestion(caso.id)} className="w-full bg-gray-900 text-white px-4 py-2 rounded-lg">Marcar en gestión</button>
                       <button onClick={() => editarCaso(caso)} className="w-full bg-white border px-4 py-2 rounded-lg">Editar</button>
                       <button onClick={() => cerrarCaso(caso.id)} className="w-full bg-white border px-4 py-2 rounded-lg">Cerrar caso</button>
+                      <button onClick={() => eliminarCaso(caso.id)} className="w-full bg-red-600 text-white px-4 py-2 rounded-lg">Eliminar</button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow p-4">
+            <h2 className="text-xl font-bold">En gestión</h2>
+            <p className="text-gray-600 mb-4">Casos tomados y pendientes de cierre.</p>
+
+            {casosGestion.length === 0 && (
+              <div className="text-center text-gray-500 p-6 border rounded-xl">
+                No existen casos en gestión.
+              </div>
+            )}
+
+            <div className="space-y-4">
+              {casosGestion.map(caso => (
+                <div key={caso.id} className="border rounded-xl p-4 bg-yellow-50 border-yellow-300">
+                  <div className="flex justify-between gap-4">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-bold">{caso.titulo}</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-5 gap-3 mt-4 text-sm">
+                        <div><b>Responsable:</b> {caso.responsable || "-"}</div>
+                        <div><b>Compromiso:</b> {caso.fecha_compromiso || "-"}</div>
+                        <div><b>Monto:</b> {caso.monto ? "$" + Number(caso.monto).toLocaleString("es-CL") : "-"}</div>
+                        <div><b>EDP:</b> {caso.edp}</div>
+                        <div><b>Semáforo:</b> {caso.semaforo}</div>
+                      </div>
+                      {caso.detalle && <div className="mt-3 text-sm text-gray-700 whitespace-pre-wrap">{caso.detalle}</div>}
+                    </div>
+
+                    <div className="w-56 space-y-2">
+                      <button onClick={() => editarCaso(caso)} className="w-full bg-white border px-4 py-2 rounded-lg">Editar</button>
+                      <button onClick={() => cerrarCaso(caso.id)} className="w-full bg-gray-900 text-white px-4 py-2 rounded-lg">Cerrar caso</button>
+                      <button onClick={() => reabrirCaso(caso.id)} className="w-full bg-white border px-4 py-2 rounded-lg">Volver a abierto</button>
                     </div>
                   </div>
                 </div>
@@ -380,11 +491,11 @@ function NotasPendientes() {
             </thead>
 
             <tbody>
-              {casos.length === 0 && (
-                <tr><td colSpan="11" className="p-4 text-center text-gray-500">Aún no existen registros en la bitácora.</td></tr>
+              {casosHistorial.length === 0 && (
+                <tr><td colSpan="11" className="p-4 text-center text-gray-500">No existen registros con los filtros actuales.</td></tr>
               )}
 
-              {casos.map(caso => (
+              {casosHistorial.map(caso => (
                 <tr key={caso.id} className="border-t">
                   <td className="p-2">{caso.fecha}</td>
                   <td className="p-2 font-semibold">{caso.titulo}</td>
@@ -396,8 +507,13 @@ function NotasPendientes() {
                   <td className="p-2">{caso.monto ? "$" + Number(caso.monto).toLocaleString("es-CL") : "-"}</td>
                   <td className="p-2">{caso.edp}</td>
                   <td className="p-2">{caso.estado}</td>
-                  <td className="p-2 flex gap-2">
+                  <td className="p-2 flex gap-2 flex-wrap">
                     <button onClick={() => editarCaso(caso)} className="bg-white border px-3 py-1 rounded">Editar</button>
+                    {caso.estado !== "Cerrado" ? (
+                      <button onClick={() => cerrarCaso(caso.id)} className="bg-gray-900 text-white px-3 py-1 rounded">Cerrar</button>
+                    ) : (
+                      <button onClick={() => reabrirCaso(caso.id)} className="bg-white border px-3 py-1 rounded">Reabrir</button>
+                    )}
                     <button onClick={() => eliminarCaso(caso.id)} className="bg-red-600 text-white px-3 py-1 rounded">Eliminar</button>
                   </td>
                 </tr>
