@@ -16,11 +16,8 @@
   <script type="text/babel">
 
 function NotasPendientes() {
-  const STORAGE_KEY = "faena_bitacora_operativa";
-  const usuario = "Augusto Urra";
-
   const [casos, setCasos] = React.useState(() => {
-    const guardados = localStorage.getItem(STORAGE_KEY);
+    const guardados = localStorage.getItem("faena_bitacora_operativa");
     return guardados ? JSON.parse(guardados) : [];
   });
 
@@ -28,7 +25,6 @@ function NotasPendientes() {
   const [editandoId, setEditandoId] = React.useState(null);
   const [filtroResponsable, setFiltroResponsable] = React.useState("");
   const [busqueda, setBusqueda] = React.useState("");
-  const [filtroKPI, setFiltroKPI] = React.useState("todos");
 
   const formInicial = {
     fecha: new Date().toISOString().slice(0, 10),
@@ -48,96 +44,59 @@ function NotasPendientes() {
   const [form, setForm] = React.useState(formInicial);
 
   React.useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(casos));
+    localStorage.setItem("faena_bitacora_operativa", JSON.stringify(casos));
   }, [casos]);
 
   const hoy = new Date().toISOString().slice(0, 10);
 
-  const estaVencido = (c) =>
-    c.estado !== "Cerrado" && c.fecha_compromiso && c.fecha_compromiso < hoy;
+  const estaVencido = (caso) =>
+    caso.estado !== "Cerrado" && caso.fecha_compromiso && caso.fecha_compromiso < hoy;
 
-  const proximoAVencer = (c) => {
-    if (!c.fecha_compromiso || c.estado === "Cerrado") return false;
-    const diff = Math.ceil((new Date(c.fecha_compromiso) - new Date(hoy)) / (1000 * 60 * 60 * 24));
-    return diff >= 0 && diff <= 3;
+  const proximoAVencer = (caso) => {
+    if (!caso.fecha_compromiso || caso.estado === "Cerrado") return false;
+    const diferencia = Math.ceil((new Date(caso.fecha_compromiso) - new Date(hoy)) / (1000 * 60 * 60 * 24));
+    return diferencia >= 0 && diferencia <= 3;
   };
 
-  const esCritico = (c) =>
-    estaVencido(c) || c.semaforo === "Alto" || proximoAVencer(c);
-
-  const prioridad = (c) => {
-    if (estaVencido(c) && c.semaforo === "Alto") return 1;
-    if (estaVencido(c)) return 2;
-    if (c.semaforo === "Alto") return 3;
-    if (proximoAVencer(c)) return 4;
-    if (c.estado === "En gestión") return 5;
-    return 9;
-  };
+  const paraCobrar = casos.filter(c => c.estado !== "Cerrado" && c.edp === "Si").length;
+  const sinValidar = casos.filter(c => c.estado !== "Cerrado" && c.edp === "No").length;
+  const riesgosAbiertos = casos.filter(c => c.estado !== "Cerrado" && c.semaforo === "Alto").length;
+  const vencidos = casos.filter(estaVencido).length;
+  const proximos = casos.filter(proximoAVencer).length;
+  const impactoCosto = casos.filter(c => c.estado !== "Cerrado" && Number(c.monto || 0) > 0).length;
+  const inicioSinCobro = casos.filter(c => c.estado !== "Cerrado" && c.tipo === "Servicio adicional" && c.edp === "No").length;
 
   const responsables = [...new Set(casos.map(c => c.responsable).filter(Boolean))];
 
-  const coincideTexto = (c) => {
-    if (!busqueda) return true;
-    const texto = `${c.titulo || ""} ${c.detalle || ""} ${c.empresa || ""} ${c.responsable || ""} ${c.categoria || ""} ${c.tipo || ""}`.toLowerCase();
-    return texto.includes(busqueda.toLowerCase());
-  };
+  const casosAtencion = casos.filter(c => {
+    if (c.estado === "Cerrado") return false;
 
-  const coincideResponsable = (c) => {
-    if (!filtroResponsable) return true;
-    return c.responsable === filtroResponsable;
-  };
+    const esCritico = estaVencido(c) || c.semaforo === "Alto" || proximoAVencer(c);
+    if (!esCritico) return false;
 
-  const coincideKPI = (c) => {
-    if (filtroKPI === "todos") return true;
-    if (filtroKPI === "cobrar") return c.edp === "Si" && c.estado !== "Cerrado";
-    if (filtroKPI === "sin_validar") return c.edp === "No" && c.estado !== "Cerrado";
-    if (filtroKPI === "riesgos") return c.semaforo === "Alto" && c.estado !== "Cerrado";
-    if (filtroKPI === "vencidos") return estaVencido(c);
-    if (filtroKPI === "proximos") return proximoAVencer(c);
-    if (filtroKPI === "costo") return Number(c.monto || 0) > 0 && c.estado !== "Cerrado";
-    if (filtroKPI === "sin_cobro") return c.tipo === "Servicio adicional" && c.edp === "No" && c.estado !== "Cerrado";
+    if (filtroResponsable && c.responsable !== filtroResponsable) return false;
+
+    if (busqueda) {
+      const texto = `${c.titulo || ""} ${c.detalle || ""} ${c.empresa || ""} ${c.responsable || ""} ${c.categoria || ""} ${c.tipo || ""}`.toLowerCase();
+      if (!texto.includes(busqueda.toLowerCase())) return false;
+    }
+
     return true;
-  };
-
-  const baseFiltrada = casos
-    .filter(coincideTexto)
-    .filter(coincideResponsable)
-    .filter(coincideKPI)
-    .sort((a, b) => prioridad(a) - prioridad(b));
-
-  const casosUrgentes = baseFiltrada.filter(c =>
-    c.estado !== "Cerrado" &&
-    c.estado !== "En gestión" &&
-    esCritico(c)
-  );
-
-  const casosGestion = baseFiltrada.filter(c =>
-    c.estado === "En gestión"
-  );
-
-  const historial = baseFiltrada;
-
-  const kpi = {
-    cobrar: casos.filter(c => c.estado !== "Cerrado" && c.edp === "Si").length,
-    sin_validar: casos.filter(c => c.estado !== "Cerrado" && c.edp === "No").length,
-    riesgos: casos.filter(c => c.estado !== "Cerrado" && c.semaforo === "Alto").length,
-    vencidos: casos.filter(estaVencido).length,
-    proximos: casos.filter(proximoAVencer).length,
-    costo: casos.filter(c => c.estado !== "Cerrado" && Number(c.monto || 0) > 0).length,
-    sin_cobro: casos.filter(c => c.estado !== "Cerrado" && c.tipo === "Servicio adicional" && c.edp === "No").length
-  };
+  });
 
   const guardarCaso = () => {
-    if (!form.titulo.trim()) return alert("Debes ingresar el título del caso.");
-    if (!form.responsable.trim()) return alert("Debes ingresar responsable.");
+    if (!form.titulo.trim()) {
+      alert("Debes ingresar el título del caso.");
+      return;
+    }
 
     if (editandoId) {
       setCasos(casos.map(c => c.id === editandoId ? { ...form, id: editandoId } : c));
+      setEditandoId(null);
     } else {
       setCasos([{ id: Date.now(), ...form }, ...casos]);
     }
 
-    setEditandoId(null);
     setForm(formInicial);
     setVista("resumen");
   };
@@ -148,28 +107,18 @@ function NotasPendientes() {
     setVista("nuevo");
   };
 
+  const eliminarCaso = (id) => {
+    if (confirm("¿Eliminar este caso de la bitácora?")) {
+      setCasos(casos.filter(c => c.id !== id));
+    }
+  };
+
   const marcarGestion = (id) => {
     setCasos(casos.map(c => c.id === id ? { ...c, estado: "En gestión" } : c));
   };
 
   const cerrarCaso = (id) => {
     setCasos(casos.map(c => c.id === id ? { ...c, estado: "Cerrado" } : c));
-  };
-
-  const reabrirCaso = (id) => {
-    setCasos(casos.map(c => c.id === id ? { ...c, estado: "Abierto" } : c));
-  };
-
-  const eliminarCaso = (id) => {
-    if (confirm("¿Eliminar este caso?")) {
-      setCasos(casos.filter(c => c.id !== id));
-    }
-  };
-
-  const limpiarFiltros = () => {
-    setBusqueda("");
-    setFiltroResponsable("");
-    setFiltroKPI("todos");
   };
 
   const vaciarTodo = () => {
@@ -179,11 +128,11 @@ function NotasPendientes() {
   };
 
   const exportarCSV = () => {
-    const encabezados = ["Fecha", "Título", "Detalle", "Responsable", "Categoría", "Tipo", "Empresa", "Fecha compromiso", "Monto", "EDP", "Estado", "Semáforo"];
+    const encabezados = ["Fecha", "Titulo", "Detalle", "Responsable", "Categoria", "Tipo", "Empresa", "Fecha compromiso", "Monto", "EDP", "Estado", "Semaforo"];
     const filas = casos.map(c => [c.fecha, c.titulo, c.detalle, c.responsable, c.categoria, c.tipo, c.empresa, c.fecha_compromiso, c.monto, c.edp, c.estado, c.semaforo]);
 
     const csv = [encabezados, ...filas]
-      .map(fila => fila.map(v => `"${String(v || "").replaceAll('"', '""')}"`).join(";"))
+      .map(fila => fila.map(valor => `"${String(valor || "").replaceAll('"', '""')}"`).join(";"))
       .join("\n");
 
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -195,115 +144,23 @@ function NotasPendientes() {
     URL.revokeObjectURL(url);
   };
 
-  const KpiCard = ({ id, titulo, valor, subtitulo, clase }) => (
-    <button
-      onClick={() => {
-        setFiltroKPI(id);
-        setVista("resumen");
-      }}
-      className={`text-left rounded-xl border p-4 hover:shadow transition ${clase} ${filtroKPI === id ? "ring-2 ring-gray-900" : ""}`}
-    >
-      <div className="text-sm">{titulo}</div>
-      <div className="text-3xl font-bold">{valor}</div>
-      <div className="text-sm text-gray-600">{subtitulo}</div>
-    </button>
-  );
-
-  const CasoCard = ({ caso, modo }) => (
-    <div className={`border rounded-xl p-4 mb-3 ${
-      estaVencido(caso) && caso.semaforo === "Alto" ? "bg-red-100 border-red-400" :
-      estaVencido(caso) ? "bg-red-50 border-red-300" :
-      caso.semaforo === "Alto" ? "bg-orange-50 border-orange-300" :
-      modo === "gestion" ? "bg-yellow-50 border-yellow-300" :
-      "bg-white"
-    }`}>
-      <div className="flex justify-between gap-4">
-        <div className="flex-1">
-          <div className="flex flex-wrap gap-2 mb-3">
-            {estaVencido(caso) && <span className="bg-red-200 text-red-800 px-3 py-1 rounded-full text-xs font-semibold">Vencido</span>}
-            {proximoAVencer(caso) && <span className="bg-orange-200 text-orange-800 px-3 py-1 rounded-full text-xs font-semibold">Próximo a vencer</span>}
-            <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-              caso.semaforo === "Alto" ? "bg-red-200 text-red-800" :
-              caso.semaforo === "Medio" ? "bg-yellow-200 text-yellow-800" :
-              "bg-green-200 text-green-800"
-            }`}>
-              Semáforo {caso.semaforo}
-            </span>
-            <span className="bg-white border px-3 py-1 rounded-full text-xs">{caso.tipo}</span>
-            <span className="bg-white border px-3 py-1 rounded-full text-xs">{caso.empresa || "Sin empresa"}</span>
-            <span className="bg-white border px-3 py-1 rounded-full text-xs">{caso.categoria}</span>
-          </div>
-
-          <h3 className="text-lg font-bold">{caso.titulo}</h3>
-
-          {estaVencido(caso) && (
-            <p className="text-sm mt-2 text-red-700 font-semibold">
-              Atención: la fecha compromiso ya venció.
-            </p>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mt-4 text-sm">
-            <div><b>Fecha:</b> {caso.fecha}</div>
-            <div><b>Estado:</b> {caso.estado}</div>
-            <div><b>Responsable:</b> {caso.responsable || "-"}</div>
-            <div><b>Compromiso:</b> {caso.fecha_compromiso || "-"}</div>
-            <div><b>Monto:</b> {caso.monto ? "$" + Number(caso.monto).toLocaleString("es-CL") : "-"}</div>
-            <div><b>EDP:</b> {caso.edp}</div>
-          </div>
-
-          {caso.detalle && (
-            <div className="mt-3 text-sm text-gray-700 whitespace-pre-wrap">{caso.detalle}</div>
-          )}
-        </div>
-
-        <div className="w-56 space-y-2">
-          {caso.estado !== "En gestión" && caso.estado !== "Cerrado" && (
-            <button onClick={() => marcarGestion(caso.id)} className="w-full bg-gray-900 text-white px-4 py-2 rounded-lg">
-              Marcar en gestión
-            </button>
-          )}
-
-          {caso.estado === "Cerrado" && (
-            <button onClick={() => reabrirCaso(caso.id)} className="w-full bg-white border px-4 py-2 rounded-lg">
-              Reabrir
-            </button>
-          )}
-
-          <button onClick={() => editarCaso(caso)} className="w-full bg-white border px-4 py-2 rounded-lg">
-            Editar
-          </button>
-
-          {caso.estado !== "Cerrado" && (
-            <button onClick={() => cerrarCaso(caso.id)} className="w-full bg-white border px-4 py-2 rounded-lg">
-              Cerrar caso
-            </button>
-          )}
-
-          <button onClick={() => eliminarCaso(caso.id)} className="w-full bg-red-600 text-white px-4 py-2 rounded-lg">
-            Eliminar
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
   return (
     <div className="space-y-6">
+
       <div className="flex justify-between items-start border-b pb-4">
         <div>
           <h1 className="text-2xl font-bold">Bitácora Operativa</h1>
-          <p className="text-gray-600">Panel de gestión para casos críticos, seguimiento, responsables, riesgos y cobro.</p>
+          <p className="text-gray-600">Control personal de hechos, solicitudes, seguimiento, riesgos y cobro.</p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <button onClick={() => setVista("resumen")} className={`px-4 py-2 rounded-lg border ${vista === "resumen" ? "bg-gray-900 text-white" : "bg-white"}`}>Resumen</button>
+        <div className="flex gap-2">
+          <button onClick={() => setVista("resumen")} className={`px-4 py-2 rounded-lg border ${vista === "resumen" ? "bg-gray-900 text-white" : "bg-white"}`}>Resumen de atención</button>
           <button onClick={() => { setVista("nuevo"); setEditandoId(null); setForm(formInicial); }} className={`px-4 py-2 rounded-lg border ${vista === "nuevo" ? "bg-gray-900 text-white" : "bg-white"}`}>Nuevo ingreso</button>
           <button onClick={() => setVista("historial")} className={`px-4 py-2 rounded-lg border ${vista === "historial" ? "bg-gray-900 text-white" : "bg-white"}`}>Historial</button>
-          <button onClick={() => setFiltroResponsable(usuario)} className="px-4 py-2 rounded-lg bg-blue-100 border border-blue-300">Mis casos</button>
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex gap-2">
         <button onClick={exportarCSV} className="bg-white border px-4 py-2 rounded-lg hover:bg-gray-100">Exportar CSV</button>
         <button onClick={vaciarTodo} className="bg-red-50 text-red-700 border border-red-300 px-4 py-2 rounded-lg hover:bg-red-100">Vaciar todo</button>
       </div>
@@ -312,23 +169,24 @@ function NotasPendientes() {
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow p-4">
             <h2 className="text-xl font-bold">Resumen de atención</h2>
-            <p className="text-gray-600 mb-4">Haz click en cualquier KPI para filtrar automáticamente.</p>
+            <p className="text-gray-600 mb-4">Todas las tarjetas de atención inmediata se reflejan abajo.</p>
 
             <div className="grid grid-cols-1 md:grid-cols-4 xl:grid-cols-7 gap-3">
-              <KpiCard id="cobrar" titulo="Para cobrar" valor={kpi.cobrar} subtitulo="Listos para EDP" clase="bg-green-50 border-green-300" />
-              <KpiCard id="sin_validar" titulo="Sin validar" valor={kpi.sin_validar} subtitulo="Ejecutados sin respaldo" clase="bg-yellow-50 border-yellow-300" />
-              <KpiCard id="riesgos" titulo="Riesgos abiertos" valor={kpi.riesgos} subtitulo="Impacto no cerrado" clase="bg-red-50 border-red-300" />
-              <KpiCard id="vencidos" titulo="Vencidos" valor={kpi.vencidos} subtitulo="Fuera de plazo" clase="bg-gray-50 border-gray-300" />
-              <KpiCard id="proximos" titulo="Próximo a vencer" valor={kpi.proximos} subtitulo="Antes de 3 días" clase="bg-orange-50 border-orange-300" />
-              <KpiCard id="costo" titulo="Impacto en costo" valor={kpi.costo} subtitulo="Movimientos abiertos" clase="bg-blue-50 border-blue-300" />
-              <KpiCard id="sin_cobro" titulo="Inicio sin cobro" valor={kpi.sin_cobro} subtitulo="Falta cierre comercial" clase="bg-purple-50 border-purple-300" />
+              <div className="bg-green-50 border border-green-300 rounded-xl p-4"><div className="text-sm">Para cobrar</div><div className="text-3xl font-bold">{paraCobrar}</div><div className="text-sm text-gray-600">Listos para EDP</div></div>
+              <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4"><div className="text-sm">Sin validar</div><div className="text-3xl font-bold">{sinValidar}</div><div className="text-sm text-gray-600">Ejecutados sin respaldo</div></div>
+              <div className="bg-red-50 border border-red-300 rounded-xl p-4"><div className="text-sm">Riesgos abiertos</div><div className="text-3xl font-bold">{riesgosAbiertos}</div><div className="text-sm text-gray-600">Impacto no cerrado</div></div>
+              <div className="bg-gray-50 border border-gray-300 rounded-xl p-4"><div className="text-sm">Vencidos</div><div className="text-3xl font-bold">{vencidos}</div><div className="text-sm text-gray-600">Fuera de plazo</div></div>
+              <div className="bg-orange-50 border border-orange-300 rounded-xl p-4"><div className="text-sm">Próximo a vencer</div><div className="text-3xl font-bold">{proximos}</div><div className="text-sm text-gray-600">Antes de 3 días</div></div>
+              <div className="bg-blue-50 border border-blue-300 rounded-xl p-4"><div className="text-sm">Impacto en costo</div><div className="text-3xl font-bold">{impactoCosto}</div><div className="text-sm text-gray-600">Movimientos abiertos</div></div>
+              <div className="bg-purple-50 border border-purple-300 rounded-xl p-4"><div className="text-sm">Inicio sin cobro</div><div className="text-3xl font-bold">{inicioSinCobro}</div><div className="text-sm text-gray-600">Falta cierre comercial</div></div>
             </div>
           </div>
 
           <div className="bg-white rounded-xl shadow p-4">
-            <h2 className="text-xl font-bold">Filtros de gestión</h2>
+            <h2 className="text-xl font-bold">Atención inmediata</h2>
+            <p className="text-gray-600 mb-4">Casos críticos: vencidos, próximos a vencer o con semáforo alto.</p>
 
-            <div className="flex flex-wrap gap-2 mt-3">
+            <div className="flex flex-wrap gap-2 mb-4">
               <input className="border rounded px-3 py-2" placeholder="Buscar..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
 
               <select className="border rounded px-3 py-2" value={filtroResponsable} onChange={e => setFiltroResponsable(e.target.value)}>
@@ -336,46 +194,64 @@ function NotasPendientes() {
                 {responsables.map(r => <option key={r} value={r}>{r}</option>)}
               </select>
 
-              <select className="border rounded px-3 py-2" value={filtroKPI} onChange={e => setFiltroKPI(e.target.value)}>
-                <option value="todos">Todos los KPI</option>
-                <option value="cobrar">Para cobrar</option>
-                <option value="sin_validar">Sin validar</option>
-                <option value="riesgos">Riesgos abiertos</option>
-                <option value="vencidos">Vencidos</option>
-                <option value="proximos">Próximo a vencer</option>
-                <option value="costo">Impacto en costo</option>
-                <option value="sin_cobro">Inicio sin cobro</option>
-              </select>
+              <button onClick={() => { setFiltroResponsable(""); setBusqueda(""); }} className="bg-gray-200 px-3 py-2 rounded">Limpiar filtros</button>
+            </div>
 
-              <button onClick={limpiarFiltros} className="bg-gray-200 px-3 py-2 rounded">Limpiar filtros</button>
+            {casosAtencion.length === 0 && (
+              <div className="text-center text-gray-500 p-6 border rounded-xl">
+                No existen casos críticos abiertos.
+              </div>
+            )}
+
+            <div className="space-y-4">
+              {casosAtencion.map(caso => (
+                <div key={caso.id} className="border rounded-xl p-4 bg-gray-50">
+                  <div className="flex justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {estaVencido(caso) && <span className="bg-gray-200 px-3 py-1 rounded-full text-xs">Vencido</span>}
+                        {proximoAVencer(caso) && <span className="bg-orange-100 px-3 py-1 rounded-full text-xs">Próximo a vencer</span>}
+
+                        <span className={`px-3 py-1 rounded-full text-xs ${
+                          caso.semaforo === "Alto" ? "bg-red-100 text-red-700" :
+                          caso.semaforo === "Medio" ? "bg-yellow-100 text-yellow-700" :
+                          "bg-green-100 text-green-700"
+                        }`}>
+                          Semáforo {caso.semaforo}
+                        </span>
+
+                        <span className="bg-white border px-3 py-1 rounded-full text-xs">{caso.tipo}</span>
+                        <span className="bg-white border px-3 py-1 rounded-full text-xs">{caso.empresa || "Sin empresa"}</span>
+                        <span className="bg-white border px-3 py-1 rounded-full text-xs">{caso.categoria}</span>
+                      </div>
+
+                      <h3 className="text-lg font-bold">{caso.titulo}</h3>
+
+                      {estaVencido(caso) && <p className="text-sm mt-2"><b>Atención:</b> La fecha compromiso ya venció.</p>}
+
+                      <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mt-4 text-sm">
+                        <div><b>Fecha:</b> {caso.fecha}</div>
+                        <div><b>Estado:</b> {caso.estado}</div>
+                        <div><b>Responsable:</b> {caso.responsable || "-"}</div>
+                        <div><b>Compromiso:</b> {caso.fecha_compromiso || "-"}</div>
+                        <div><b>Monto:</b> {caso.monto ? "$" + Number(caso.monto).toLocaleString("es-CL") : "-"}</div>
+                        <div><b>EDP:</b> {caso.edp}</div>
+                      </div>
+
+                      {caso.detalle && <div className="mt-3 text-sm text-gray-700 whitespace-pre-wrap">{caso.detalle}</div>}
+                    </div>
+
+                    <div className="w-56 space-y-2">
+                      <button onClick={() => marcarGestion(caso.id)} className="w-full bg-gray-900 text-white px-4 py-2 rounded-lg">Marcar en gestión</button>
+                      <button onClick={() => editarCaso(caso)} className="w-full bg-white border px-4 py-2 rounded-lg">Editar</button>
+                      <button onClick={() => cerrarCaso(caso.id)} className="w-full bg-white border px-4 py-2 rounded-lg">Cerrar caso</button>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
-          <div className="bg-white rounded-xl shadow p-4">
-            <h2 className="text-xl font-bold">🔴 Atención inmediata</h2>
-            <p className="text-gray-600 mb-4">Casos críticos no gestionados: vencidos, próximos a vencer o semáforo alto.</p>
-
-            {casosUrgentes.length === 0 && (
-              <div className="text-center text-gray-500 p-6 border rounded-xl bg-green-50">
-                No existen casos críticos sin gestión.
-              </div>
-            )}
-
-            {casosUrgentes.map(c => <CasoCard key={c.id} caso={c} modo="urgente" />)}
-          </div>
-
-          <div className="bg-white rounded-xl shadow p-4">
-            <h2 className="text-xl font-bold">🟡 En gestión</h2>
-            <p className="text-gray-600 mb-4">Casos tomados y pendientes de cierre.</p>
-
-            {casosGestion.length === 0 && (
-              <div className="text-center text-gray-500 p-6 border rounded-xl">
-                No existen casos en gestión.
-              </div>
-            )}
-
-            {casosGestion.map(c => <CasoCard key={c.id} caso={c} modo="gestion" />)}
-          </div>
         </div>
       )}
 
@@ -384,6 +260,7 @@ function NotasPendientes() {
           <h2 className="text-xl font-bold mb-4">{editandoId ? "Editar caso" : "Nuevo ingreso"}</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
             <div>
               <label className="text-sm font-semibold">Fecha</label>
               <input type="date" className="w-full border rounded p-2" value={form.fecha} onChange={e => setForm({ ...form, fecha: e.target.value })} />
@@ -478,6 +355,7 @@ function NotasPendientes() {
               <button onClick={guardarCaso} className="bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-700">{editandoId ? "Guardar cambios" : "Guardar caso"}</button>
               <button onClick={() => { setForm(formInicial); setEditandoId(null); setVista("resumen"); }} className="bg-white border px-4 py-2 rounded-lg hover:bg-gray-100">Cancelar</button>
             </div>
+
           </div>
         </div>
       )}
@@ -502,32 +380,25 @@ function NotasPendientes() {
             </thead>
 
             <tbody>
-              {historial.length === 0 && (
-                <tr>
-                  <td colSpan="11" className="p-4 text-center text-gray-500">No existen registros con los filtros actuales.</td>
-                </tr>
+              {casos.length === 0 && (
+                <tr><td colSpan="11" className="p-4 text-center text-gray-500">Aún no existen registros en la bitácora.</td></tr>
               )}
 
-              {historial.map(c => (
-                <tr key={c.id} className="border-t">
-                  <td className="p-2">{c.fecha}</td>
-                  <td className="p-2 font-semibold">{c.titulo}</td>
-                  <td className="p-2">{c.categoria}</td>
-                  <td className="p-2">{c.tipo}</td>
-                  <td className="p-2">{c.empresa}</td>
-                  <td className="p-2">{c.responsable}</td>
-                  <td className="p-2">{c.fecha_compromiso}</td>
-                  <td className="p-2">{c.monto ? "$" + Number(c.monto).toLocaleString("es-CL") : "-"}</td>
-                  <td className="p-2">{c.edp}</td>
-                  <td className="p-2">{c.estado}</td>
+              {casos.map(caso => (
+                <tr key={caso.id} className="border-t">
+                  <td className="p-2">{caso.fecha}</td>
+                  <td className="p-2 font-semibold">{caso.titulo}</td>
+                  <td className="p-2">{caso.categoria}</td>
+                  <td className="p-2">{caso.tipo}</td>
+                  <td className="p-2">{caso.empresa}</td>
+                  <td className="p-2">{caso.responsable}</td>
+                  <td className="p-2">{caso.fecha_compromiso}</td>
+                  <td className="p-2">{caso.monto ? "$" + Number(caso.monto).toLocaleString("es-CL") : "-"}</td>
+                  <td className="p-2">{caso.edp}</td>
+                  <td className="p-2">{caso.estado}</td>
                   <td className="p-2 flex gap-2">
-                    <button onClick={() => editarCaso(c)} className="bg-white border px-3 py-1 rounded">Editar</button>
-                    {c.estado !== "Cerrado" ? (
-                      <button onClick={() => cerrarCaso(c.id)} className="bg-gray-900 text-white px-3 py-1 rounded">Cerrar</button>
-                    ) : (
-                      <button onClick={() => reabrirCaso(c.id)} className="bg-white border px-3 py-1 rounded">Reabrir</button>
-                    )}
-                    <button onClick={() => eliminarCaso(c.id)} className="bg-red-600 text-white px-3 py-1 rounded">Eliminar</button>
+                    <button onClick={() => editarCaso(caso)} className="bg-white border px-3 py-1 rounded">Editar</button>
+                    <button onClick={() => eliminarCaso(caso.id)} className="bg-red-600 text-white px-3 py-1 rounded">Eliminar</button>
                   </td>
                 </tr>
               ))}
@@ -535,10 +406,11 @@ function NotasPendientes() {
           </table>
         </div>
       )}
+
     </div>
   );
 }
-    
+
 function App() {
   const [view, setView] = React.useState("dashboard");
 
