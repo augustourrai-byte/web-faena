@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Web Interna Faena</title>
+
+  <!-- React -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100">
+  <div id="root"></div>
+
+  <script type="text/babel">
+
+    function App() {
+      const [view, setView] = React.useState("dashboard");
+
+      const renderContent = () => {
+        switch (view) {
+          case "dashboard":
+            return <h1 className="text-2xl font-bold">Dashboard General</h1>;
+
+          case "notas":
+            return <h1 className="text-2xl font-bold">Notas / Pendientes (Libro de Obras)</h1>;
+
+          case "desviaciones":
+            return <h1 className="text-2xl font-bold">Food Cost - Desviaciones</h1>;
+
+          case "raciones":
+            return <h1 className="text-2xl font-bold">Control de Raciones</h1>;
+
+          case "edp":
+            return <h1 className="text-2xl font-bold">HTML de EDP</h1>;
+
+          case "devoluciones":
+            return <h1 className="text-2xl font-bold">Devoluciones</h1>;
+
+          case "status":
+            return <h1 className="text-2xl font-bold">Status EDP</h1>;
+
+          case "dotaciones":
+            return <h1 className="text-2xl font-bold">Control de Dotaciones</h1>;
+
+          case "gastos":
+            return <h1 className="text-2xl font-bold">Control de Gastos</h1>;
+
+          default:
+            return <h1>Selecciona una opción</h1>;
+        }
+      };
+
+      return (
+        <div className="flex h-screen">
+
+          {/* MENU LATERAL */}
+          <div className="w-64 bg-gray-900 text-white p-4 space-y-2">
+
+            <h2 className="text-xl font-bold mb-4">FAENA</h2>
+
+            <button onClick={() => setView("dashboard")} className="w-full text-left hover:bg-gray-700 p-2 rounded">
+              📊 Dashboard
+            </button>
+
+            <div className="mt-4 text-gray-400 text-sm">RESUMEN</div>
+            <button onClick={() => setView("notas")} className="w-full text-left hover:bg-gray-700 p-2 rounded">
+              📝 Notas / Pendientes
+            </button>
+
+            <div className="mt-4 text-gray-400 text-sm">FOOD COST</div>
+            <button onClick={() => setView("desviaciones")} className="w-full text-left hover:bg-gray-700 p-2 rounded">
+              📉 Desviaciones
+            </button>
+
+            <div className="mt-4 text-gray-400 text-sm">CONTRATISTAS</div>
+            <button onClick={() => setView("raciones")} className="w-full text-left hover:bg-gray-700 p-2 rounded">
+              🍽️ Control de Raciones
+            </button>
+            <button onClick={() => setView("edp")} className="w-full text-left hover:bg-gray-700 p-2 rounded">
+              📄 HTML de EDP
+            </button>
+
+            <div className="mt-4 text-gray-400 text-sm">MANDANTE</div>
+            <button onClick={() => setView("devoluciones")} className="w-full text-left hover:bg-gray-700 p-2 rounded">
+              💰 Devoluciones
+            </button>
+            <button onClick={() => setView("status")} className="w-full text-left hover:bg-gray-700 p-2 rounded">
+              📌 Status EDP
+            </button>
+
+            <div className="mt-4 text-gray-400 text-sm">LABOR</div>
+            <button onClick={() => setView("dotaciones")} className="w-full text-left hover:bg-gray-700 p-2 rounded">
+              👷 Dotaciones
+            </button>
+
+            <div className="mt-4 text-gray-400 text-sm">GASTOS</div>
+            <button onClick={() => setView("gastos")} className="w-full text-left hover:bg-gray-700 p-2 rounded">
+              💸 Gastos
+            </button>
+
+          </div>
+
+          {/* CONTENIDO */}
+          <div className="flex-1 p-6 overflow-auto">
+            {renderContent()}
+          </div>
+
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+
+  </script>
+</body>
+</html>
