@@ -538,8 +538,16 @@ function App() {
         return <NotasPendientes />;
       case "desviaciones":
         return <h1 className="text-2xl font-bold">Food Cost - Desviaciones</h1>;
-      case "raciones":
-        return <h1 className="text-2xl font-bold">Control de Raciones</h1>;
+case "raciones":
+  return (
+    <div className="h-full">
+      <iframe
+        src="raciones.html"
+        className="w-full h-[calc(100vh-3rem)] border-0 rounded-xl bg-white"
+        title="Control de Raciones"
+      ></iframe>
+    </div>
+  );
       case "edp":
         return <h1 className="text-2xl font-bold">HTML de EDP</h1>;
       case "devoluciones":
