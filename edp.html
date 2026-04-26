@@ -1,0 +1,1327 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Dashboard Facturación vs Meta v8.6</title>
+
+<!-- Tailwind (Play CDN) -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- React UMD + Babel -->
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<!-- SheetJS para Excel -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<!-- jsPDF para PDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+<style>
+  :root{
+    --bg:#f5f7fb;
+    --card:#ffffff;
+    --muted:#f8fafc;
+    --border:#e5e7eb;
+    --text:#0f172a;
+  }
+  html,body{background:var(--bg);color:var(--text);font-size:15px}
+  .card{background:var(--card);border:1px solid var(--border)}
+  .btn{border:1px solid var(--border);background-color:var(--muted);color:var(--text)}
+  .btn:hover{background:#eef2ff}
+  .tab{background:var(--muted);border:1px solid var(--border)}
+  .tab.active{background:#e0e7ff;border-color:#c7d2fe;color:#111827}
+  .sticky-head thead tr{position:sticky;top:0;z-index:3}
+  .sticky-head thead th{background:#f1f5f9}
+  .legend-box{display:inline-block;width:22px;height:8px;border-radius:4px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- ========== AUTH ADD-ON (NO TOCA REACT) ========== -->
+<script>
+(function(){
+  const LS = window.localStorage;
+  const q = (s,root=document)=>root.querySelector(s);
+  const qa = (s,root=document)=>Array.from(root.querySelectorAll(s));
+
+  try{
+    const users = JSON.parse(LS.getItem('df_users')||'[]');
+    if(!users.length){
+      LS.setItem('df_users', JSON.stringify([
+        {username:'admin', pass:'admin', role:'admin', faenaId:''}
+      ]));
+    }
+  }catch{ LS.setItem('df_users','[]'); }
+
+  function getUsers(){ try{ return JSON.parse(LS.getItem('df_users')||'[]'); }catch{ return []; } }
+  function setUsers(arr){ LS.setItem('df_users', JSON.stringify(arr||[])); }
+  function getSession(){ try{ return JSON.parse(LS.getItem('df_session')||'null'); }catch{ return null; } }
+  function setSession(s){ if(s) LS.setItem('df_session', JSON.stringify(s)); else LS.removeItem('df_session'); }
+
+  function overlay(html){
+    const el = document.createElement('div');
+    el.id = 'auth-overlay';
+    el.innerHTML = `
+      <div style="position:fixed;inset:0;background:rgba(15,23,42,.5);display:grid;place-items:center;z-index:9999;">
+        <div style="background:#fff;border-radius:16px;padding:20px;min-width:340px;border:1px solid #e5e7eb;box-shadow:0 10px 30px rgba(0,0,0,.08)">
+          ${html}
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    return el;
+  }
+  function closeOverlay(){ const el = q('#auth-overlay'); if(el) el.remove(); }
+  function lockApp(on){
+    const r = document.getElementById('root');
+    if(!r) return;
+    r.style.display = on ? 'none' : '';
+  }
+
+  function showLogin(){
+    lockApp(true);
+    const el = overlay(`
+      <h3 style="margin:0 0 12px;font:600 16px/1.3 system-ui">Iniciar sesión</h3>
+      <div style="display:grid;gap:8px">
+        <input id="lg_user" placeholder="Usuario" style="border:1px solid #e5e7eb;border-radius:10px;padding:10px"/>
+        <input id="lg_pass" placeholder="Contraseña" type="password" style="border:1px solid #e5e7eb;border-radius:10px;padding:10px"/>
+        <button id="lg_btn" style="border-radius:10px;padding:10px;background:#4f46e5;color:#fff;border:0">Entrar</button>
+        <div id="lg_msg" style="color:#dc2626;font-size:12px;min-height:16px"></div>
+        <div style="font-size:12px;color:#6b7280">Admin por defecto: <b>admin / admin</b></div>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+          <button id="go_admin" style="border-radius:8px;padding:6px 10px;border:1px solid #e5e7eb;background:#f8fafc">Abrir administración</button>
+        </div>
+      </div>
+    `);
+
+    q('#lg_btn', el).onclick = () => {
+      const u = q('#lg_user', el).value.trim();
+      const p = q('#lg_pass', el).value;
+      const user = getUsers().find(x=>x.username===u && x.pass===p);
+      if(!user){ q('#lg_msg', el).textContent = 'Credenciales inválidas.'; return; }
+
+      setSession({username:user.username, role:user.role, faenaId:user.faenaId||''});
+      if(user.role==='faena'){
+        LS.setItem('df_role','faena');
+        if(user.faenaId) LS.setItem('df_scopeFaena', user.faenaId);
+        LS.setItem('df_lockFaena','true');
+      }else{
+        LS.setItem('df_role','director');
+        LS.removeItem('df_lockFaena');
+      }
+      closeOverlay();
+      location.reload();
+    };
+
+    q('#go_admin', el).onclick = () => { closeOverlay(); showAdmin(); };
+  }
+
+  function showAdmin(){
+    const ulist = getUsers();
+    const rows = ulist.map((u,i)=>`
+      <tr>
+        <td style="padding:8px;border-top:1px solid #eee">${u.username}</td>
+        <td style="padding:8px;border-top:1px solid #eee">${u.role||'-'}</td>
+        <td style="padding:8px;border-top:1px solid #eee">${u.faenaId||'-'}</td>
+        <td style="padding:8px;border-top:1px solid #eee">
+          <button data-d="${i}" style="padding:6px 10px;border-radius:8px;border:1px solid #e5e7eb;background:#fff">Eliminar</button>
+        </td>
+      </tr>
+    `).join('');
+
+    const el = overlay(`
+      <h3 style="margin:0 0 12px;font:600 16px/1.3 system-ui">Administración de usuarios</h3>
+      <div style="display:grid;gap:12px">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+          <input id="ad_user" placeholder="Usuario" style="border:1px solid #e5e7eb;border-radius:10px;padding:10px"/>
+          <input id="ad_pass" placeholder="Contraseña" style="border:1px solid #e5e7eb;border-radius:10px;padding:10px"/>
+          <select id="ad_role" style="border:1px solid #e5e7eb;border-radius:10px;padding:10px">
+            <option value="faena">faena</option>
+            <option value="director">director</option>
+            <option value="admin">admin</option>
+          </select>
+          <input id="ad_faena" placeholder="faenaId (p.e. F1)" style="grid-column:1 / span 3;border:1px solid #e5e7eb;border-radius:10px;padding:10px"/>
+          <button id="ad_add" style="grid-column:1 / span 3;border-radius:10px;padding:10px;background:#16a34a;color:#fff;border:0">Agregar usuario</button>
+        </div>
+        <div style="max-height:260px;overflow:auto;border:1px solid #e5e7eb;border-radius:10px">
+          <table style="width:100%;border-collapse:collapse;font-size:14px">
+            <thead>
+              <tr style="background:#f8fafc">
+                <th style="text-align:left;padding:8px">Usuario</th>
+                <th style="text-align:left;padding:8px">Rol</th>
+                <th style="text-align:left;padding:8px">faenaId</th>
+                <th style="text-align:left;padding:8px">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>${rows || '<tr><td style="padding:8px" colspan="4">Sin usuarios</td></tr>'}</tbody>
+          </table>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button id="ad_close" style="border-radius:8px;padding:8px 12px;border:1px solid #e5e7eb;background:#fff">Cerrar</button>
+        </div>
+      </div>
+    `);
+
+    q('#ad_add', el).onclick = ()=>{
+      const user = q('#ad_user', el).value.trim();
+      const pass = q('#ad_pass', el).value;
+      const role = q('#ad_role', el).value;
+      const faena = q('#ad_faena', el).value.trim();
+      if(!user || !pass){ alert('Usuario y contraseña son obligatorios'); return; }
+      const arr = getUsers();
+      if(arr.some(x=>x.username===user)){ alert('Ya existe ese usuario'); return; }
+      arr.push({username:user, pass:pass, role:role, faenaId:(role==='faena'? faena : '')});
+      setUsers(arr);
+      closeOverlay(); showAdmin();
+    };
+    qa('button[data-d]', el).forEach(btn=>{
+      btn.onclick = ()=>{
+        const idx = Number(btn.getAttribute('data-d'));
+        const arr = getUsers(); arr.splice(idx,1); setUsers(arr);
+        closeOverlay(); showAdmin();
+      };
+    });
+    q('#ad_close', el).onclick = ()=>{ closeOverlay(); showLogin(); };
+  }
+
+  function lockFaenaControlsIfNeeded(){
+    if(LS.getItem('df_lockFaena')!=='true') return;
+    const faenaId = LS.getItem('df_scopeFaena') || '';
+    const int = setInterval(()=>{
+      const labels = qa('label');
+      labels.forEach(l=>{
+        const txt = (l.textContent||'').trim().toLowerCase();
+        const sel = q('select', l);
+        if(!sel) return;
+        if(txt.startsWith('rol')){
+          sel.value = 'faena';
+          sel.disabled = true;
+          sel.style.pointerEvents='none';
+          sel.style.opacity='.6';
+        }
+        if(txt.startsWith('faena')){
+          if(faenaId){ sel.value = faenaId; }
+          sel.disabled = true;
+          sel.style.pointerEvents='none';
+          sel.style.opacity='.6';
+        }
+      });
+    }, 500);
+    window.addEventListener('beforeunload', ()=> clearInterval(int));
+  }
+
+  window.addEventListener('keydown', (e)=>{
+    if(e.altKey && (e.key==='u' || e.key==='U')){
+      const s = getSession();
+      if(s && (s.role==='admin' || s.role==='director')){ e.preventDefault(); showAdmin(); }
+    }
+  });
+
+  document.addEventListener('DOMContentLoaded', ()=>{
+    const s = getSession();
+    if(!s){
+      lockApp(true);
+      showLogin();
+    }
+    lockFaenaControlsIfNeeded();
+  });
+
+  window.DF_logout = function(){
+    try{
+      localStorage.removeItem('df_session');
+      localStorage.removeItem('df_role');
+      localStorage.removeItem('df_scopeFaena');
+      localStorage.removeItem('df_lockFaena');
+      lockApp(true);
+      showLogin();
+    }catch(e){ console.error(e); }
+  }
+})();
+</script>
+
+<!-- ========== APP REACT ========== -->
+<script type="text/babel" data-presets="env,react">
+const {useState,useEffect,useMemo} = React;
+
+/* ========= Constantes / Utils ========= */
+const MONTHS=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+const YEARS=(()=>{const y=new Date().getFullYear();return [y-1,y,y+1];})();
+const fmt=(n)=>Number(n||0).toLocaleString("es-CL");
+const clamp=(v,min,max)=>Math.max(min,Math.min(max,Number(v)||0));
+const cx=(...xs)=>xs.filter(Boolean).join(" ");
+const todayISO=()=>new Date().toISOString().slice(0,10);
+const ymKey=(d)=>{const dt=new Date(d);return isNaN(dt)? "": dt.toISOString().slice(0,7)}; // YYYY-MM
+
+// ====== FIX monto con $ y puntos ======
+function toNumberLike(v){
+  if (v==null) return 0;
+  let s = String(v).trim()
+    .replace(/\s+/g,"")
+    .replace(/[^\d,.\-()]/g,"");
+  if (/^\(.*\)$/.test(s)) s = "-" + s.slice(1,-1);
+  s = s.replace(/\.(?=\d{3}(\D|$))/g,"");
+  if (s.includes(",")){
+    const i = s.lastIndexOf(",");
+    s = s.slice(0,i).replace(/,/g,"") + "." + s.slice(i+1);
+  }
+  const n = Number(s);
+  return isNaN(n) ? 0 : n;
+}
+
+// ====== FIX fecha “may-25” / “mayo-2025” ======
+function toISODate(d){
+  if(!d) return "";
+  let s = String(d).trim().toLowerCase();
+
+  let m = s.match(/^(\d{2})[-\/](\d{2})[-\/](\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  m = s.match(/^(\d{4})[-\/](\d{2})[-\/](\d{2})$/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+
+  const map = {
+    "ene":1,"enero":1,"jan":1,"january":1,
+    "feb":2,"febrero":2,"february":2,
+    "mar":3,"marzo":3,"march":3,
+    "abr":4,"abril":4,"apr":4,"april":4,
+    "may":5,"mayo":5,
+    "jun":6,"junio":6,"june":6,
+    "jul":7,"julio":7,"july":7,
+    "ago":8,"agosto":8,"aug":8,"august":8,
+    "sep":9,"sept":9,"septiembre":9,"september":9,
+    "oct":10,"octubre":10,"october":10,
+    "nov":11,"noviembre":11,"november":11,
+    "dic":12,"diciembre":12,"dec":12,"december":12
+  };
+  m = s.match(/^([a-záéíóú]+)[\-\/\s](\d{2,4})$/i);
+  if (m){
+    const key = m[1].normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+    const mm = map[key];
+    if (mm){
+      let yy = Number(m[2]);
+      if (yy < 100) yy = 2000 + yy;
+      return `${yy}-${String(mm).padStart(2,"0")}-01`;
+    }
+  }
+  const dt = new Date(s);
+  return isNaN(dt) ? "" : dt.toISOString().slice(0,10);
+}
+
+const monthsDiff=(d1,d2)=>{
+  const a=new Date(d1), b=new Date(d2);
+  return (b.getFullYear()-a.getFullYear())*12 + (b.getMonth()-a.getMonth());
+};
+const agingBucket=(days)=> days<=30?"0-30":days<=60?"31-60":days<=90?"61-90":days<=180?"91-180":days<=270?"181-270":days<=365?"271-365":"365+";
+
+/* ========= CSV robusto ========= */
+function detectDelim(a,b=""){
+  const cand=[",",";","\t","|"]; let best=",",score=-1;
+  for(const d of cand){ const re=new RegExp("\\"+d,"g"); const c=(a.match(re)||[]).length+(b.match(re)||[]).length; if(c>score){score=c;best=d;} }
+  return best;
+}
+function parseCSV(text){
+  const input=String(text||"").replace(/^\uFEFF/,"");
+  const lines=input.split(/\r?\n/).filter(l=>l.trim()!=="");
+  if(!lines.length) return [];
+  const delim=detectDelim(lines[0],lines[1]||"");
+  const parseLine=(line)=>{const out=[];let cur="",inQ=false;for(let i=0;i<line.length;i++){const ch=line[i];if(ch==='"'){if(inQ&&line[i+1]==='"'){cur+='"';i++;}else inQ=!inQ;}else if(ch===delim&&!inQ){out.push(cur);cur="";}else cur+=ch;} out.push(cur); return out.map(x=>x.trim());};
+  const headers=parseLine(lines[0]).map(h=>h.trim());
+  const rows=[]; for(let i=1;i<lines.length;i++){const parts=parseLine(lines[i]); if(parts.length===1&&parts[0]==="") continue; const obj={}; headers.forEach((h,idx)=>obj[h]=(parts[idx]??"").trim()); rows.push(obj);} return rows;
+}
+
+/* ========= Datos demo ========= */
+const seedJefaturas=[{id:"J1",nombre:"Jefatura Norte"},{id:"J2",nombre:"Jefatura Centro"},{id:"J3",nombre:"Jefatura Sur"}];
+const seedFaenas=[
+  {id:"F1",nombre:"Faena A",jefaturaId:"J1"},
+  {id:"F2",nombre:"Faena B",jefaturaId:"J1"},
+  {id:"F3",nombre:"Faena C",jefaturaId:"J2"},
+  {id:"F4",nombre:"Faena D",jefaturaId:"J3"},
+];
+const buildEmptyMetas=()=>{const m={}; for(const f of seedFaenas){m[f.id]={}; for(const y of YEARS) m[f.id][y]=Array(12).fill(0);} return m;};
+
+/* ========= Castigo helpers ========= */
+const castigoPctSnapshot=(months)=>{ if(months>=12) return 100; if(months>=9) return 50; if(months>=6) return 10; return 0; };
+const castigoPctIncremental=(months)=>{ if(months===6) return 10; if(months===9) return 40; if(months===12) return 50; return 0; };
+
+/* ========= Lógica ========= */
+const isUnbilledStatus=(s="")=>{
+  const t=String(s).trim().toLowerCase();
+  return (t===""||t==="pendiente"||t==="enviado"||t==="por facturar"||t==="por emitir"||t==="unbilled"||t==="sin facturar");
+};
+const netoConCastigo=(monto,pct)=>Math.max(Number(monto)||0,0)*(1-clamp(pct,0,100)/100);
+
+/* ========= Normalizador objetivo_mes ========= */
+function objYMParts(rec){
+  const m = String(rec && rec.objetivo_mes || "").trim().toLowerCase();
+  const map = {
+    "ene":1,"enero":1,"jan":1,"january":1,
+    "feb":2,"febrero":2,"february":2,
+    "mar":3,"marzo":3,"march":3,
+    "abr":4,"abril":4,"apr":4,"april":4,
+    "may":5,"mayo":5,
+    "jun":6,"junio":6,"june":6,
+    "jul":7,"julio":7,"july":7,
+    "ago":8,"agosto":8,"aug":8,"august":8,
+    "sep":9,"sept":9,"septiembre":9,"september":9,
+    "oct":10,"octubre":10,"october":10,
+    "nov":11,"noviembre":11,"november":11,
+    "dic":12,"diciembre":12,"dec":12,"december":12
+  };
+  let r = m.match(/^(\d{4})[-\/](\d{1,2})$/); if(r) return {yy:Number(r[1]), mm:Number(r[2])};
+  r = m.match(/^(\d{1,2})[-\/](\d{4})$/);     if(r) return {yy:Number(r[2]), mm:Number(r[1])};
+  r = m.match(/^([a-záéíóú]+)[\-\/\s](\d{2,4})$/i);
+  if (r){
+    const key = r[1].normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+    const mm = map[key];
+    if (mm){
+      let yy = Number(r[2]);
+      if (yy < 100) yy = 2000 + yy;
+      return {yy, mm};
+    }
+  }
+  const dt = new Date(rec && rec.fecha || "");
+  if (!isNaN(dt)) return {yy: dt.getFullYear(), mm: dt.getMonth()+1};
+  return {yy:"", mm:""};
+}
+function objYMKey(rec){
+  const p = objYMParts(rec);
+  return (p.yy && p.mm) ? `${p.yy}-${String(p.mm).padStart(2,"0")}` : "";
+}
+
+/* ========= Helper alcance por rol (compatible) ========= */
+function getScopeFaenas(role, scopeJef, scopeFaena){
+  if (role === "faena") return [scopeFaena];
+  if (role === "jefatura") {
+    var ids = [];
+    for (var i = 0; i < seedFaenas.length; i++) {
+      var f = seedFaenas[i];
+      if (f.jefaturaId === scopeJef) ids.push(f.id);
+    }
+    var out = [], seen = {};
+    for (var j = 0; j < ids.length; j++){ var id = ids[j]; if(!seen[id]){ seen[id]=1; out.push(id); } }
+    return out;
+  }
+  var all = [];
+  for (var k = 0; k < seedFaenas.length; k++) all.push(seedFaenas[k].id);
+  return all;
+}
+
+/* ========= UI comunes ========= */
+const Tabs=({tabs,value,onChange})=>(
+  <div className="flex flex-wrap gap-2">
+    {tabs.map(t=>(
+      <button key={t.value} onClick={()=>onChange(t.value)} className={cx("tab rounded-2xl px-4 py-2 text-sm font-semibold", value===t.value?"active":"")}>
+        {t.emoji} {t.label}
+      </button>
+    ))}
+  </div>
+);
+const Pill=({tone="",children})=>(<span className={cx("inline-flex items-center gap-2 rounded-2xl px-3 py-1 text-sm font-medium border shadow-sm",tone||"bg-white")}>{children}</span>);
+
+/* ========= Dashboard ========= */
+function DashboardView({picker,metas,factHist,invoices,role,scopeJef,scopeFaena}){
+  const scopeFaenas = React.useMemo(()=>getScopeFaenas(role, scopeJef, scopeFaena),[role,scopeJef,scopeFaena]);
+
+  const unbilledNeto = invoices
+    .filter(i=>(!scopeFaenas || scopeFaenas.includes(i.faenaId)) && i.status!=="anulada" && isUnbilledStatus(i.status))
+    .reduce((a,i)=>{
+      const m=monthsDiff(i.fecha, new Date());
+      const pct = (i.castigo_pct!=null ? i.castigo_pct : castigoPctSnapshot(m));
+      return a+netoConCastigo(i.monto, pct);
+    },0);
+
+  const now = new Date();
+  const unbilledList = invoices.filter(i=>scopeFaenas.includes(i.faenaId) && isUnbilledStatus(i.status));
+  let castigoSnapshot=0, castigoInc=0;
+  for(const i of unbilledList){
+    const m = monthsDiff(i.fecha, now);
+    castigoSnapshot += (i.monto||0) * castigoPctSnapshot(m)/100;
+    castigoInc      += (i.monto||0) * castigoPctIncremental(m)/100;
+  }
+  let recupero=0;
+  const yymm=todayISO().slice(0,7);
+  const factMes=invoices.filter(i=>i.status==="emitida" && (i.emitida_en||"").slice(0,7)===yymm);
+  for(const i of factMes){
+    const mAlEmitir = monthsDiff(i.fecha, i.emitida_en || todayISO());
+    const pctRecuperado = castigoPctSnapshot(mAlEmitir);
+    recupero += (i.monto||0)*pctRecuperado/100;
+  }
+  const castigoIncNeto = castigoInc - recupero;
+
+  const metaSerie = Array(12).fill(0);
+  for (const fid of scopeFaenas) {
+    for (let m = 0; m < 12; m++) {
+      metaSerie[m] += Number(metas?.[fid]?.[picker.year]?.[m] || 0);
+    }
+  }
+
+  const factSerie = Array(12).fill(0);
+  for (const inv of invoices) {
+    if (!scopeFaenas.includes(inv.faenaId)) continue;
+    const st = (inv.status || "").toLowerCase();
+    if (!(st === "emitida" || st === "pagada")) continue;
+    const dt = inv.emitida_en ? new Date(inv.emitida_en) : null;
+    if (!dt || isNaN(dt)) continue;
+    if (dt.getFullYear() !== picker.year) continue;
+    const mm = dt.getMonth();
+    factSerie[mm] += Number(inv.monto) || 0;
+  }
+
+  const hastaMes = (picker.month === -1 ? 11 : picker.month);
+  const factAcum = factSerie.slice(0, hastaMes + 1).reduce((a, v) => a + v, 0);
+  const metaAcum = metaSerie.slice(0, hastaMes + 1).reduce((a, v) => a + v, 0);
+  const realSerie = factSerie;
+  const saldoPorFacturar = Math.max(unbilledNeto - factAcum, 0);
+
+  const W=1100,H=320,P=48,xmax=11,ymax=Math.max(...metaSerie,...realSerie,1);
+  const y=v=>H-P-(v/ymax)*(H-2*P), x=i=>P+(i/xmax)*(W-2*P);
+  const path=arr=>arr.map((v,i)=>`${i===0?"M":"L"} ${x(i)} ${y(v)}`).join(" ");
+
+  const limpiarYTD=()=>{
+    if(!confirm("¿Limpiar Facturado YTD del año mostrado?")) return;
+    try{
+      const next={...factHist};
+      for(const f of scopeFaenas){
+        if(next[f]) next[f][picker.year]=Array(12).fill(0);
+      }
+      localStorage.setItem("df_fact_hist",JSON.stringify(next));
+      location.reload();
+    }catch{}
+  };
+
+  return(
+    <div className="grid gap-4">
+      <div className="grid md:grid-cols-4 gap-3">
+        <div className="card rounded-2xl p-4">
+          <div className="text-sm text-gray-600">Unbilled (neto)</div>
+          <div className="text-3xl font-bold text-indigo-700">{fmt(unbilledNeto)}</div>
+          <div className="text-xs text-gray-500 mt-1">bruto – castigo</div>
+        </div>
+        <div className="card rounded-2xl p-4">
+          <div className="text-sm text-gray-600">Castigo incremental <b>neto</b> del mes</div>
+          <div className="text-3xl font-bold text-purple-700">{fmt(castigoIncNeto)}</div>
+          <div className="text-[11px] text-gray-500 mt-1">Total castigo (snapshot): {fmt(castigoSnapshot)} • Recupero: {fmt(recupero)}</div>
+        </div>
+        <div className="card rounded-2xl p-4">
+          <div className="text-sm text-gray-600">{picker.month===-1?"Facturado Año":"Facturado YTD"}</div>
+          <div className="text-3xl font-bold text-sky-700">{fmt(factAcum)}</div>
+          <div className="flex items-center justify-between mt-2">
+            <div className="text-xs text-gray-500">Histórico acumulado</div>
+            <button onClick={limpiarYTD} className="text-xs px-2 py-1 rounded-lg bg-red-50 border border-red-200 text-red-600 hover:bg-red-100">Limpiar YTD</button>
+          </div>
+        </div>
+        <div className="card rounded-2xl p-4">
+          <div className="text-sm text-gray-600">Saldo por facturar</div>
+          <div className="text-3xl font-bold text-emerald-700">{fmt(saldoPorFacturar)}</div>
+          <div className="text-xs text-gray-500 mt-1">Unbilled − Facturado</div>
+        </div>
+      </div>
+
+      <div className="card rounded-2xl p-4">
+        <div className="mb-3 font-semibold text-lg">Facturación mensual vs Meta</div>
+        <div className="flex items-center gap-4 mb-2 text-sm">
+          <div className="inline-flex items-center gap-2"><span className="legend-box bg-sky-500"></span>Real (histórico)</div>
+          <div className="inline-flex items-center gap-2"><span className="legend-box bg-pink-400"></span>Meta</div>
+        </div>
+        <div className="overflow-auto">
+          <svg width={W} height={H} className="rounded-lg bg-white">
+            <g stroke="#e5e7eb" strokeWidth="1">{[0,0.25,0.5,0.75,1].map((t,i)=>{const yy=y(Math.max(ymax*t,1e-6));return <line key={i} x1={P} y1={yy} x2={W-P} y2={yy} opacity="0.9"/>})}</g>
+            <g stroke="#cbd5e1"><line x1={P} y1={H-P} x2={W-P} y2={H-P}/><line x1={P} y1={P} x2={P} y2={H-P}/></g>
+            <path d={path(realSerie)} fill="none" stroke="#38bdf8" strokeWidth="3"/>
+            <path d={path(metaSerie)} fill="none" stroke="#f472b6" strokeWidth="3"/>
+            {MONTHS.map((m,i)=>(<text key={m} x={x(i)} y={H-P+18} fontSize="12" textAnchor="middle" fill="#475569">{m.slice(0,3)}</text>))}
+          </svg>
+        </div>
+        <div className="mt-2 text-sm text-gray-700">
+          Progreso {picker.month===-1?"Año":"YTD"}: {fmt(factAcum)} / {fmt(metaAcum)} ({metaAcum>0?((factAcum/metaAcum*100).toFixed(1)):"0.0"}%)
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ========= Facturas (FIX COMPLETO + año/mes objetivo normalizados) ========= */
+function FacturasView({ invoices, setInvoices, picker, role, scopeJef, scopeFaena }){
+  const scopeFaenas = React.useMemo(()=>getScopeFaenas(role, scopeJef, scopeFaena),[role,scopeJef,scopeFaena]);
+
+  const getBaseDate = (inv) => {
+    const d1 = inv.emitida_en ? new Date(inv.emitida_en) : null;
+    const d2 = (!d1 && inv.pagada_en) ? new Date(inv.pagada_en) : null;
+    const d3 = (!d1 && !d2 && inv.fecha) ? new Date(inv.fecha) : null;
+    const base = d1 || d2 || d3;
+    return (base && !isNaN(base)) ? base : null;
+  };
+
+  const filtered = invoices
+    .filter(inv=>{
+      const st = (inv.status||"").toLowerCase();
+      const facturado = (st==="emitida" || st==="pagada");
+      if(!facturado) return false;
+
+      const baseDate = getBaseDate(inv);
+      if(!baseDate) return false;
+
+      const mismoAnio = baseDate.getFullYear()===picker.year;
+      const hitMes = (picker.month===-1) ? true : (baseDate.getMonth()===picker.month);
+      const enAlcance = scopeFaenas.includes(inv.faenaId);
+      return mismoAnio && hitMes && enAlcance;
+    })
+    .map(i=>({ ...i, net: netoConCastigo(i.monto, i.castigo_pct??0) }));
+
+  const [sel,setSel]=React.useState(()=>new Set());
+  const toggle=(id)=>setSel(prev=>{const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n;});
+  const selectAll=()=>setSel(new Set(filtered.map(r=>r.__id)));
+  const clearSel=()=>setSel(new Set());
+
+  const revertir=()=>{
+    if(sel.size===0) return;
+    if(!confirm("¿Revertir a pendiente las facturas seleccionadas?")) return;
+    setInvoices(prev=>{
+      const next=prev.map(r=> sel.has(r.__id)? {...r, status:"pendiente"} : r );
+      try{localStorage.setItem("df_invoices",JSON.stringify(next));}catch{}
+      return next;
+    });
+    clearSel();
+  };
+  const eliminar=()=>{
+    if(sel.size===0) return;
+    if(!confirm("¿Eliminar definitivamente los registros seleccionados?")) return;
+    setInvoices(prev=>{
+      const next=prev.filter(r=>!sel.has(r.__id));
+      try{localStorage.setItem("df_invoices",JSON.stringify(next));}catch{}
+      return next;
+    });
+    clearSel();
+  };
+
+  const totalNeto = filtered.reduce((a,r)=>a+(r.net||0),0);
+  const tituloMes = picker.month===-1 ? "Año completo" : `YTD • hasta ${MONTHS[picker.month]}`;
+  const header = `Facturas facturadas ${picker.year} • ${tituloMes}`;
+
+  return(
+    <div className="card rounded-2xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span>🧾</span>
+          <h3 className="font-semibold text-lg">{header}</h3>
+        </div>
+        <div className="flex items-center gap-2">
+          <Pill>Neto total: <b>{fmt(totalNeto)}</b></Pill>
+          <button className="btn rounded-xl px-3 py-2" onClick={selectAll}>Seleccionar todo</button>
+          <button className="btn rounded-xl px-3 py-2" onClick={revertir}>Revertir a pendiente</button>
+          <button className="btn rounded-xl px-3 py-2" onClick={eliminar}>Eliminar</button>
+        </div>
+      </div>
+
+      <div className="overflow-auto">
+        <table className="min-w-full text-sm sticky-head">
+          <thead>
+            <tr>
+              <th className="p-3 text-left">#</th>
+              <th className="p-3 text-left">Faena</th>
+              <th className="p-3 text-left">Empresa</th>
+              <th className="p-3 text-left">Mes objetivo</th>
+              <th className="p-3 text-left">Año objetivo</th>
+              <th className="p-3 text-left">Obs.</th>
+              <th className="p-3 text-left">N° factura</th>
+              <th className="p-3 text-left">Emitida</th>
+              <th className="p-3 text-left">Neto</th>
+              <th className="p-3 text-left">Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((r)=>{
+              const p = objYMParts(r);
+              const mesTxt = (p.yy && p.mm) ? MONTHS[p.mm-1] : "-";
+              const yyTxt  = p.yy || "-";
+              return (
+                <tr key={r.__id} className="border-t align-top">
+                  <td className="p-3"><input type="checkbox" checked={sel.has(r.__id)} onChange={()=>toggle(r.__id)}/></td>
+                  <td className="p-3">{r.faenaId}</td>
+                  <td className="p-3">{r.empresa}</td>
+                  <td className="p-3">{mesTxt}</td>
+                  <td className="p-3">{yyTxt}</td>
+                  <td className="p-3">{r.observacion || "-"}</td>
+                  <td className="p-3">{r.numero||"-"}</td>
+                  <td className="p-3">{r.emitida_en||r.pagada_en||"-"}</td>
+                  <td className="p-3 font-semibold">{fmt(r.net||0)}</td>
+                  <td className="p-3">
+                    <span className="px-2 py-1 text-xs rounded-lg bg-green-100 text-green-700 border border-green-200">Facturado</span>
+                  </td>
+                </tr>
+              );
+            })}
+            {filtered.length===0 && (
+              <tr><td colSpan={10} className="p-3 text-gray-500">Sin facturas facturadas en el periodo seleccionado.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ========= Pendientes ========= */
+function PendientesView({ invoices, setInvoices, role, scopeJef, scopeFaena, picker }){
+  const scopeFaenas = React.useMemo(()=>getScopeFaenas(role, scopeJef, scopeFaena),[role,scopeJef,scopeFaena]);
+  const [q,setQ]=React.useState("");
+  const [mesObjetivo,setMesObjetivo]=React.useState("todas");
+  const now = new Date();
+
+  const [sel,setSel] = React.useState(()=>new Set());
+  const masterRef = React.useRef(null);
+
+  const list = invoices.filter(i=>{
+    const enAlcance = scopeFaenas.includes(i.faenaId);
+    const st = (i.status||"").toLowerCase();
+    return enAlcance && st!=="pagada" && st!=="anulada" && isUnbilledStatus(st);
+  });
+
+  // resumen por mes objetivo (YYYY-MM)
+  const resumen = list.reduce((acc,i)=>{
+    const k = objYMKey(i);
+    const pct = (i.castigo_pct!=null ? i.castigo_pct : castigoPctSnapshot(monthsDiff(i.fecha, now)));
+    const net=netoConCastigo(i.monto,pct);
+    acc[k]=(acc[k]||0)+net; return acc;
+  },{});
+  const mesesOrden = Object.keys(resumen).filter(Boolean).sort();
+  const totalPendiente = list.reduce((a,i)=>{
+    const pct = (i.castigo_pct!=null ? i.castigo_pct : castigoPctSnapshot(monthsDiff(i.fecha, now)));
+    return a+netoConCastigo(i.monto,pct);
+  },0);
+
+  const filtered = list.filter(i=>{
+    const k = objYMKey(i);
+    const hitMes = (mesObjetivo==="todas") ? true : (k===mesObjetivo);
+    const hitQ = [i.faenaId,i.empresa,i.numero,i.status,i.observacion].join(" ").toLowerCase().includes(q.toLowerCase());
+    return hitMes && hitQ;
+  });
+
+  React.useEffect(()=>{ if(!masterRef.current) return; masterRef.current.indeterminate = (sel.size>0 && sel.size<filtered.length); },[sel,filtered.length]);
+
+  const toggle = (id)=> setSel(prev=>{ const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; });
+  const toggleAll = (e)=>{ if(e.target.checked) setSel(new Set(filtered.map(r=>r.__id))); else setSel(new Set()); };
+
+  const eliminarSel=()=>{
+    if(sel.size===0) return;
+    if(!confirm("¿Eliminar seleccionados?")) return;
+    setInvoices(prev=>{
+      const next=prev.filter(r=>!sel.has(r.__id));
+      localStorage.setItem("df_invoices",JSON.stringify(next));
+      return next;
+    });
+    setSel(new Set());
+  };
+
+  const registrar=(inv, numero, emitida_en, montoReg, nuevoEstado="emitida")=>{
+    const ymd=toISODate(emitida_en||todayISO());
+    if(!numero || !ymd){ alert("Completa N° de factura y fecha de emisión."); return; }
+    setInvoices(prev=>{
+      const next=[...prev];
+      const idx=next.findIndex(x=>x.__id===inv.__id);
+      if(idx>=0){
+        next[idx]={...next[idx], numero, emitida_en:ymd, status:nuevoEstado, monto: toNumberLike(montoReg)||next[idx].monto};
+      }
+      localStorage.setItem("df_invoices",JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const saveObs = (rowId, val) => {
+    setInvoices(prev => {
+      const next = [...prev];
+      const idx = next.findIndex(x => x.__id === rowId);
+      if (idx >= 0) {
+        next[idx] = {...next[idx], observacion: val, observacion_ts: new Date().toISOString().slice(0,16).replace("T"," ")};
+        try { localStorage.setItem("df_invoices", JSON.stringify(next)); } catch {}
+      }
+      return next;
+    });
+  };
+
+  const handleExportExcel = () => {
+    const rows = filtered.map(r => {
+      const p = objYMParts(r);
+      const mesTxt = (p.yy && p.mm) ? `${MONTHS[p.mm-1]} ${p.yy}` : '-';
+      const pct = (r.castigo_pct != null ? r.castigo_pct : castigoPctSnapshot(monthsDiff(r.fecha, now)));
+      const net = netoConCastigo(r.monto, pct);
+      return { Mes: mesTxt, Faena: r.faenaId, Empresa: r.empresa, 'Castigo %': pct, Neto: net, Obs: r.observacion || '' };
+    });
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, 'Pendientes');
+    XLSX.writeFile(wb, `pendientes_${todayISO()}.xlsx`);
+  };
+
+  const handleExportPDF = () => {
+    const doc = new jspdf.jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+    doc.setFontSize(13);
+    doc.text(`Pendientes (${filtered.length}) - ${todayISO()}`, 40, 40);
+    const header = ['Mes','Faena','Empresa','Castigo %','Neto','Obs.'];
+    const startX = 40, startY = 70, rowH = 20;
+    const colW = [90,60,200,80,90,260];
+    header.forEach((h,i) => { const x = startX + colW.slice(0,i).reduce((a,b)=>a+b,0); doc.text(String(h), x, startY); });
+    let y = startY + rowH;
+    filtered.forEach(r => {
+      const p = objYMParts(r);
+      const mesTxt = (p.yy && p.mm) ? `${MONTHS[p.mm-1]} ${p.yy}` : '-';
+      const pct = (r.castigo_pct != null ? r.castigo_pct : castigoPctSnapshot(monthsDiff(r.fecha, now)));
+      const net = netoConCastigo(r.monto, pct);
+      const cells = [mesTxt, r.faenaId, r.empresa, `${pct}%`, fmt(net), r.observacion || ''];
+      cells.forEach((c,i) => { const x = startX + colW.slice(0,i).reduce((a,b)=>a+b,0); doc.text(String(c), x, y); });
+      y += rowH; if (y > 560) { doc.addPage(); y = 60; }
+    });
+    doc.save(`pendientes_${todayISO()}.pdf`);
+  };
+
+  return (
+    <div className="card rounded-2xl p-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <button onClick={()=>setMesObjetivo("todas")} className={cx("btn rounded-xl px-4 py-2 text-sm", mesObjetivo==="todas"?"bg-indigo-100 border-indigo-300":"")}>
+          Todas: {fmt(totalPendiente)}
+        </button>
+        {mesesOrden.map(k=>{
+          const yy=k.split("-")[0], mm=Number(k.split("-")[1])-1;
+          return (
+            <button key={k} onClick={()=>setMesObjetivo(k)} className={cx("btn rounded-xl px-4 py-2 text-sm", mesObjetivo===k?"bg-indigo-100 border-indigo-300":"")}>
+              {MONTHS[mm]} {yy}: {fmt(resumen[k])}
+            </button>
+          );
+        })}
+        <div className="ml-auto flex gap-2">
+          <button className="btn rounded-xl px-4 py-2 disabled:opacity-50" disabled={sel.size===0} onClick={eliminarSel}>🗑️ Eliminar seleccionados</button>
+          <button className="btn rounded-xl px-3 py-2" onClick={handleExportExcel}>⬇️ Excel</button>
+          <button className="btn rounded-xl px-3 py-2" onClick={handleExportPDF}>⬇️ PDF</button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 my-3">
+        <input className="rounded-xl border px-4 py-2 bg-white w-96" placeholder="Buscar…" value={q} onChange={e=>setQ(e.target.value)}/>
+      </div>
+
+      <div className="overflow-auto">
+        <table className="min-w-full text-sm sticky-head">
+          <thead>
+            <tr>
+              <th className="p-3 text-left"><input ref={masterRef} type="checkbox" onChange={toggleAll} checked={filtered.length>0 && sel.size===filtered.length}/></th>
+              <th className="p-3 text-left">Mes</th>
+              <th className="p-3 text-left">Faena</th>
+              <th className="p-3 text-left">Empresa</th>
+              <th className="p-3 text-left">Castigo %</th>
+              <th className="p-3 text-left">Neto</th>
+              <th className="p-3 text-left">Obs.</th>
+              <th className="p-3 text-left">N° factura</th>
+              <th className="p-3 text-left">Emitida</th>
+              <th className="p-3 text-left">Registrar</th>
+              <th className="p-3 text-left">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((r)=>{
+              const p = objYMParts(r);
+              const mesTxt = (p.yy && p.mm) ? `${MONTHS[p.mm-1]} ${p.yy}`:"-";
+              const pct = (r.castigo_pct!=null ? r.castigo_pct : castigoPctSnapshot(monthsDiff(r.fecha, now)));
+              const net = netoConCastigo(r.monto,pct);
+              return (
+                <tr key={r.__id} className="border-t align-top">
+                  <td className="p-3"><input type="checkbox" checked={sel.has(r.__id)} onChange={()=>toggle(r.__id)}/></td>
+                  <td className="p-3">{mesTxt}</td>
+                  <td className="p-3">{r.faenaId}</td>
+                  <td className="p-3">{r.empresa}</td>
+                  <td className="p-3">{pct}%</td>
+                  <td className="p-3 font-semibold">{fmt(net)}</td>
+                  <td className="p-3">
+                    <div className="relative w-64">
+                      <input id={`obs${r.__id}`} className="rounded-xl border px-3 py-2 pr-8 bg-white w-full text-sm"
+                        defaultValue={r.observacion || ""} placeholder="Ej: se compromete a pagar el 15/09"
+                        onBlur={e => saveObs(r.__id, e.target.value)} onKeyDown={(e)=>{ if(e.key==="Enter") e.currentTarget.blur(); }}/>
+                      <button type="button" title="Guardar observación" aria-label="Guardar observación"
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 grid place-items-center rounded-full border border-slate-300 text-slate-600 hover:bg-slate-50"
+                        onClick={()=>{ const val = document.getElementById(`obs${r.__id}`)?.value || ""; saveObs(r.__id, val); }}>💾</button>
+                    </div>
+                    <div className="text-[10px] text-gray-500 mt-1">{r.observacion_ts ? `Actualizado: ${r.observacion_ts}` : "—"}</div>
+                  </td>
+                  <td className="p-3"><input className="rounded-xl border px-3 py-2 bg-white w-44" placeholder="N°" id={`n${r.__id}`}/></td>
+                  <td className="p-3"><input type="date" className="rounded-xl border px-3 py-2 bg-white w-48" defaultValue={todayISO()} id={`e${r.__id}`}/></td>
+                  <td className="p-3">
+                    <div className="flex items-center gap-2">
+                      <input type="number" min="0" className="rounded-xl border px-3 py-2 bg-white w-48" defaultValue={r.monto} id={`m${r.__id}`}/>
+                      <button type="button" title="Registrar factura" aria-label="Registrar factura"
+                        className="w-7 h-7 grid place-items-center rounded-full border border-indigo-300 text-indigo-600 hover:bg-indigo-50"
+                        onClick={()=>{ const numero=document.getElementById(`n${r.__id}`).value; const em=document.getElementById(`e${r.__id}`).value; const monto=document.getElementById(`m${r.__id}`).value; registrar(r,numero,em,monto,"emitida"); }}>✔</button>
+                    </div>
+                  </td>
+                  <td className="p-3">
+                    <button type="button" title="Eliminar fila" aria-label="Eliminar fila"
+                      className="w-7 h-7 grid place-items-center rounded-full border border-red-200 text-red-500 hover:bg-red-50"
+                      onClick={()=>{ if(!confirm("¿Eliminar esta fila?")) return; setInvoices(prev=>{ const next=prev.filter(x=>x.__id!==r.__id); localStorage.setItem("df_invoices",JSON.stringify(next)); return next; }); }}>✖</button>
+                  </td>
+                </tr>
+              );
+            })}
+            {filtered.length===0 && (<tr><td className="p-3 text-gray-500" colSpan="11">Sin pendientes.</td></tr>)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ========= Castigos ========= */
+function CastigosView({ invoices, role, scopeJef, scopeFaena }) {
+  const now = new Date();
+  const scopeFaenas = React.useMemo(()=>getScopeFaenas(role, scopeJef, scopeFaena),[role,scopeJef,scopeFaena]);
+
+  const unbilled = invoices.filter(i => scopeFaenas.includes(i.faenaId) && isUnbilledStatus(i.status));
+
+  let totalSnapshot=0, inc6=0, inc9=0, inc12=0;
+  for(const i of unbilled){
+    const m=monthsDiff(i.fecha, now);
+    totalSnapshot+=(i.monto||0)*castigoPctSnapshot(m)/100;
+    const incPct=castigoPctIncremental(m);
+    if(incPct>0){
+      const inc=(i.monto||0)*incPct/100;
+      if(m===6) inc6+=inc;
+      if(m===9) inc9+=inc;
+      if(m===12) inc12+=inc;
+    }
+  }
+  const incremental=inc6+inc9+inc12;
+
+  let recupero=0;
+  const yymm=todayISO().slice(0,7);
+  const facturadasEsteMes=invoices.filter(i=>{
+    const st=(i.status||"").toLowerCase();
+    if(!(st==="emitida"||st==="pagada")) return false;
+    const ref = i.emitida_en || i.fecha;
+    return (ref||"").slice(0,7)===yymm;
+  });
+  for(const i of facturadasEsteMes){
+    const mAlEmitir = monthsDiff(i.fecha, i.emitida_en || todayISO());
+    const pctRecuperado = castigoPctSnapshot(mAlEmitir);
+    recupero += (i.monto||0)*pctRecuperado/100;
+  }
+  const incrementalNeto = incremental - recupero;
+
+  const buckets = {"0-30":0,"31-60":0,"61-90":0,"91-180":0,"181-270":0,"271-365":0,"365+":0};
+  const bucketsSnap = {"0-30":0,"31-60":0,"61-90":0,"91-180":0,"181-270":0,"271-365":0,"365+":0};
+  const bucketsInc = {"0-30":0,"31-60":0,"61-90":0,"91-180":0,"181-270":0,"271-365":0,"365+":0};
+
+  for(const i of unbilled){
+    const days = Math.max(0, Math.floor((now - new Date(i.fecha))/86400000));
+    const b = agingBucket(days);
+    const m = monthsDiff(i.fecha, now);
+    buckets[b] += (i.monto||0);
+    bucketsSnap[b] += (i.monto||0) * castigoPctSnapshot(m)/100;
+    const incPct = castigoPctIncremental(m);
+    if(incPct>0) bucketsInc[b] += (i.monto||0) * incPct/100;
+  }
+
+  const byEmpresa = {};
+  for(const i of unbilled){
+    const emp=(i.empresa||"—").toString();
+    const m=monthsDiff(i.fecha, now);
+    byEmpresa[emp] ??= {snapshot:0, inc:0, rec:0};
+    byEmpresa[emp].snapshot += (i.monto||0)*castigoPctSnapshot(m)/100;
+    const incPct=castigoPctIncremental(m);
+    if(incPct>0) byEmpresa[emp].inc += (i.monto||0)*incPct/100;
+  }
+  for(const i of facturadasEsteMes){
+    const emp=(i.empresa||"—").toString();
+    const mAlEmitir=monthsDiff(i.fecha, i.emitida_en || todayISO());
+    const pctRecuperado=castigoPctSnapshot(mAlEmitir);
+    byEmpresa[emp] ??= {snapshot:0, inc:0, rec:0};
+    byEmpresa[emp].rec += (i.monto||0)*pctRecuperado/100;
+  }
+  const rowsEmp = Object.entries(byEmpresa).map(([empresa,v])=>({empresa, snapshot:v.snapshot, incremental:v.inc, recupero:v.rec, neto:v.inc - v.rec})).sort((a,b)=>b.neto-a.neto);
+
+  return(
+    <div className="grid gap-4">
+      <div className="flex items-center justify-end">
+        <button className="btn rounded-xl px-4 py-2" onClick={()=>{ if(!confirm("¿Limpiar snapshots de castigo guardados?")) return; try{localStorage.removeItem("df_castigos_snapshots"); alert("Listo.");}catch{} }}>🧹 Limpiar snapshots</button>
+      </div>
+
+      <div className="grid md:grid-cols-3 gap-3">
+        <div className="card rounded-2xl p-4">
+          <div className="text-sm text-gray-600">Total castigos (snapshot)</div>
+          <div className="text-3xl font-bold text-pink-700">{fmt(totalSnapshot)}</div>
+        </div>
+        <div className="card rounded-2xl p-4">
+          <div className="text-sm text-gray-600">Incremental neto (mes)</div>
+          <div className="text-3xl font-bold text-purple-700">{fmt(incrementalNeto)}</div>
+          <div className="text-[11px] text-gray-500 mt-1">Cálculo: Incremental − Recupero</div>
+        </div>
+        <div className="card rounded-2xl p-4">
+          <div className="text-sm text-gray-600">Recupero (mes)</div>
+          <div className="text-3xl font-bold text-emerald-700">{fmt(recupero)}</div>
+        </div>
+      </div>
+
+      <div className="card rounded-2xl p-4">
+        <div className="mb-2 font-semibold text-lg">Detalle por antigüedad (unbilled)</div>
+        <div className="overflow-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr>
+                <th className="p-3 text-left">Bucket (días)</th>
+                <th className="p-3 text-left">Snapshot</th>
+                <th className="p-3 text-left">Actual (bruto)</th>
+                <th className="p-3 text-left">Incremental (bruto)</th>
+                <th className="p-3 text-left">Incremental neto*</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.keys(buckets).map(k=>{
+                const snap = bucketsSnap[k];
+                const act  = buckets[k];
+                const incB = bucketsInc[k];
+                const peso = (incB>0 ? incB : 0) / (Object.values(bucketsInc).reduce((a,x)=>a+x,0) || 1);
+                const recAlloc = recupero * peso;
+                const incNeto = incB - recAlloc;
+                return (
+                  <tr key={k} className="border-t">
+                    <td className="p-3">{k}</td>
+                    <td className="p-3">{fmt(snap)}</td>
+                    <td className="p-3">{fmt(act)}</td>
+                    <td className="p-3">{fmt(incB)}</td>
+                    <td className="p-3">{fmt(incNeto)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="text-[11px] text-gray-500 mt-2">*Incremental neto por bucket = Incremental bruto del bucket − recuperación asignada (reparto proporcional).</div>
+        </div>
+      </div>
+
+      <div className="card rounded-2xl p-4">
+        <div className="mb-2 font-semibold text-lg">Detalle por empresa (mes actual)</div>
+        <div className="overflow-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr>
+                <th className="p-3 text-left">Empresa</th>
+                <th className="p-3 text-left">Snapshot</th>
+                <th className="p-3 text-left">Incremental</th>
+                <th className="p-3 text-left">Recupero</th>
+                <th className="p-3 text-left">Total neto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rowsEmp.map(r=>(
+                <tr key={r.empresa} className="border-t">
+                  <td className="p-3">{r.empresa}</td>
+                  <td className="p-3">{fmt(r.snapshot)}</td>
+                  <td className="p-3">{fmt(r.incremental)}</td>
+                  <td className="p-3">{fmt(r.recupero)}</td>
+                  <td className="p-3 font-semibold">{fmt(r.neto)}</td>
+                </tr>
+              ))}
+              {rowsEmp.length===0 && <tr><td className="p-3 text-gray-500" colSpan="5">Sin datos para este mes.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ========= Import/Export ========= */
+function ImportView({ onImport, metas, factHist, picker, invoices }){
+  const [preview,setPreview]=useState(null);
+  const [msg,setMsg]=useState("");
+  const [fileName,setFileName]=useState("");
+
+  const exportInvoicesCSV=()=>{
+    const headers=["faenaId","empresa","fecha","monto","status","numero","emitida_en","pagada_en","observacion","objetivo_mes","castigo_pct"];
+    const lines=[headers.join(",")].concat(invoices.map(i=>headers.map(h=>i[h]??"").join(",")));
+    const blob=new Blob(["\ufeff"+lines.join("\n")],{type:"text/csv;charset=utf-8;"}); 
+    const url=URL.createObjectURL(blob); 
+    const a=document.createElement("a"); a.href=url; a.download="facturas.csv"; a.click(); 
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadCSV = (rows, filename) => {
+    if(!rows.length) return;
+    const headers = Object.keys(rows[0]);
+    const delim = ",";
+    const lines = [headers.join(delim)].concat(rows.map(r => headers.map(h => (r[h] ?? "")).join(delim)));
+    const blob = new Blob(["\ufeff"+lines.join("\n")], {type:"text/csv;charset=utf-8;"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadXLSX = (sheetsObj, filename) => {
+    const wb = XLSX.utils.book_new();
+    Object.entries(sheetsObj).forEach(([name,rows])=>{
+      const ws = XLSX.utils.json_to_sheet(rows);
+      XLSX.utils.book_append_sheet(wb, ws, name.slice(0,31));
+    });
+    XLSX.writeFile(wb, filename);
+  };
+
+  const sampleMetas = [
+    {faenaId:"F1", year: new Date().getFullYear(), month: 9,  meta: 12000000},
+    {faenaId:"F1", year: new Date().getFullYear(), month: 10, meta: 14000000},
+    {faenaId:"F2", year: new Date().getFullYear(), month: 9,  meta: 8000000}
+  ];
+  const sampleHistorico = [
+    {faenaId:"F1", year: new Date().getFullYear(), month: 1,  facturable: 9500000},
+    {faenaId:"F1", year: new Date().getFullYear(), month: 2,  facturable: 10300000},
+    {faenaId:"F2", year: new Date().getFullYear(), month: 1,  facturable: 7000000}
+  ];
+  const sampleFacturas = [
+    {faenaId:"F1", empresa:"Komatsu", fecha:"2025-08-05", monto: 2500000, status:"pendiente", numero:"", emitida_en:"", pagada_en:"", observacion:"por emitir", objetivo_mes:"2025-08", castigo_pct:""},
+    {faenaId:"F1", empresa:"EMSA",    fecha:"2025-07-20", monto: 3800000, status:"emitida",   numero:"F-12345", emitida_en:"2025-09-01", pagada_en:"", observacion:"en proceso de pago", objetivo_mes:"2025-07", castigo_pct:10},
+    {faenaId:"F2", empresa:"ACHS",    fecha:"2025-06-10", monto: 1100000, status:"pagada",    numero:"F-56789", emitida_en:"2025-07-02", pagada_en:"2025-08-10", observacion:"", objetivo_mes:"2025-06", castigo_pct:""}
+  ];
+
+  const downloadSamplesCSV = () => {
+    downloadCSV(sampleMetas, "ejemplo_metas.csv");
+    downloadCSV(sampleHistorico, "ejemplo_historico.csv");
+    downloadCSV(sampleFacturas, "ejemplo_facturas_estados.csv");
+  };
+  const downloadSamplesXLSX = () => {
+    downloadXLSX({ "Metas": sampleMetas, "Historico": sampleHistorico, "FacturasEstados": sampleFacturas }, "ejemplos_importacion.xlsx");
+  };
+
+  const handleFile=async(file)=>{
+    setMsg(""); setFileName(file.name);
+    const text=await file.text(); 
+    const rows=parseCSV(text);
+    let metasCnt=0,histCnt=0,factCnt=0;
+    for(const raw of rows){
+      const r={}; Object.keys(raw).forEach(k=>r[k.toLowerCase()]=raw[k]);
+      if(r.meta!==undefined && r.year && r.month && r.faenaid) metasCnt++;
+      else if(r.facturable!==undefined && r.year && r.month && r.faenaid) histCnt++;
+      else if(r.faenaid && r.empresa && r.fecha) factCnt++;
+    }
+    setPreview({rows, stats:{total:rows.length, metas:metasCnt, historico:histCnt, facturas:factCnt}, sample: rows.slice(0,5)});
+  };
+
+  const confirmImport=()=>{
+    if(!preview?.rows?.length) return;
+    const res=onImport(preview.rows);
+    if(res && typeof res==="object"){
+      const {metasSet=0,histSet=0,invAdded=0,invUpdated=0}=res;
+      setMsg(`✔ Importado. Metas: ${metasSet}, Histórico: ${histSet}, Facturas añadidas: ${invAdded}, actualizadas: ${invUpdated}`);
+    }else setMsg("✔ Archivo importado correctamente");
+    setPreview(null); setFileName("");
+  };
+  const cancelPreview=()=>{ setPreview(null); setFileName(""); setMsg("Importación cancelada."); };
+
+  return(
+    <div className="card rounded-2xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2"><span>📥</span><h3 className="font-semibold text-lg">Importar/Exportar</h3></div>
+        <button onClick={()=>{if(confirm("¿Borrar todo lo local (metas, facturas, histórico)?")){localStorage.clear(); location.reload();}}} className="btn rounded-xl px-4 py-2">🧯 Reset local</button>
+      </div>
+      <div className="text-sm text-gray-700 mb-3">
+        Soporta metas, histórico y facturas/estados. Columnas: <code>numero, emitida_en, pagada_en, observacion, objetivo_mes, castigo_pct</code>. Acepta coma <b>,</b> y punto y coma <b>;</b>. Fechas <code>YYYY-MM-DD</code>.
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <button className="btn rounded-xl px-4 py-2" onClick={downloadSamplesCSV}>⬇️ Descargar ejemplos (CSV)</button>
+        <button className="btn rounded-xl px-4 py-2" onClick={downloadSamplesXLSX}>⬇️ Descargar ejemplos (Excel)</button>
+        <div className="opacity-60 text-sm">Incluye: Metas, Histórico y Facturas/Estados</div>
+      </div>
+
+      <div className="flex items-center gap-3 flex-wrap">
+        <input type="file" accept=".csv" onChange={e=>{const f=e.target.files?.[0]; if(f) handleFile(f);}} className="text-sm"/>
+        <button className="btn rounded-xl px-4 py-2" onClick={exportInvoicesCSV}>⬇️ Exportar facturas</button>
+      </div>
+
+      {preview && (
+        <div className="mt-4 rounded-xl border bg-white p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm text-gray-800">
+              <b>Archivo:</b> {fileName} • <b>Total:</b> {preview.stats.total} • <b>Metas:</b> {preview.stats.metas} • <b>Histórico:</b> {preview.stats.historico} • <b>Facturas/Estados:</b> {preview.stats.facturas}
+            </div>
+            <div className="flex items-center gap-2">
+              <button className="rounded-xl px-4 py-2 bg-indigo-600 text-white hover:bg-indigo-700" onClick={confirmImport}>⬆️ Importar</button>
+              <button className="btn rounded-xl px-4 py-2" onClick={cancelPreview}>Cancelar</button>
+            </div>
+          </div>
+          <div className="text-sm text-gray-600 mb-1">Muestra (primeras 5 filas):</div>
+          <pre className="text-sm overflow-auto bg-[#fafafa] rounded-lg p-2 text-gray-800">{JSON.stringify(preview.sample,null,2)}</pre>
+        </div>
+      )}
+
+      {msg && (<div className="mt-3 inline-flex items-center gap-2 text-sm">✅ {msg}</div>)}
+    </div>
+  );
+}
+
+/* ========= App ========= */
+function App(){
+  const now=new Date();
+  const [tab,setTab]=useState("dashboard");
+  const [picker,setPicker]=useState({year:now.getFullYear(),month:now.getMonth()}); // -1 = Todas
+  const [metas,setMetas]=useState(()=>{try{return JSON.parse(localStorage.getItem("df_metas")||"null")||buildEmptyMetas();}catch{return buildEmptyMetas();}});
+  const [invoices,setInvoices]=useState(()=>{try{return JSON.parse(localStorage.getItem("df_invoices")||"[]");}catch{return [];}});
+  const [factHist,setFactHist]=useState(()=>{try{return JSON.parse(localStorage.getItem("df_fact_hist")||"{}");}catch{return {};}});
+  const [role,setRole]=useState(()=>{try{return localStorage.getItem("df_role")||"director";}catch{return "director";}});
+  const [scopeJef,setScopeJef]=useState(()=>{try{return localStorage.getItem("df_scopeJef")||"J1";}catch{return "J1";}});
+  const [scopeFaena,setScopeFaena]=useState(()=>{try{return localStorage.getItem("df_scopeFaena")||"F1";}catch{return "F1";}});
+
+  // ensure each invoice has __id
+  useEffect(()=>{
+    setInvoices(prev=>{
+      let changed=false;
+      const next=prev.map((i,idx)=>{
+        if(!i.__id){ changed=true; return {...i,__id:(i.numero||"") + "_" + (i.fecha||"") + "_" + idx+"_"+Math.random().toString(36).slice(2,7)}}
+        return i;
+      });
+      if(changed) localStorage.setItem("df_invoices",JSON.stringify(next));
+      return next;
+    });
+  },[]);
+
+  // Normaliza objetivo_mes a YYYY-MM (corrige años errados)
+  useEffect(()=>{
+    setInvoices(prev=>{
+      let changed = false;
+      const next = prev.map(r=>{
+        const norm = objYMKey(r);
+        if (norm && r.objetivo_mes !== norm){
+          changed = true;
+          return {...r, objetivo_mes: norm};
+        }
+        return r;
+      });
+      if (changed){
+        try{ localStorage.setItem("df_invoices", JSON.stringify(next)); }catch{}
+      }
+      return next;
+    });
+  },[]);
+
+  useEffect(()=>{try{localStorage.setItem("df_invoices",JSON.stringify(invoices));}catch{}},[invoices]);
+  useEffect(()=>{try{localStorage.setItem("df_metas",JSON.stringify(metas));}catch{}},[metas]);
+  useEffect(()=>{try{localStorage.setItem("df_role",role); localStorage.setItem("df_scopeJef",scopeJef); localStorage.setItem("df_scopeFaena",scopeFaena);}catch{}},[role,scopeJef,scopeFaena]);
+
+  const onImport=(rows)=>{
+    try{
+      let metasSet=0, histSet=0, invAdded=0, invUpdated=0;
+      const nextInv=[...invoices], nextMetas={...metas}, nextHist={...factHist};
+      const norm=(raw)=>{const r={}; Object.keys(raw).forEach(k=>r[k.toLowerCase()]=raw[k]); return r;};
+      const findByNumero=(arr,numero)=>arr.findIndex(x=>(x.numero||"").toLowerCase()===(numero||"").toLowerCase());
+      const findByFields=(arr,fid,emp,fecha)=>arr.findIndex(x=>x.faenaId===fid && (x.empresa||"").toLowerCase()===(emp||"").toLowerCase() && x.fecha===fecha);
+
+      for(const raw of rows){
+        const r=norm(raw);
+        if(r.meta!==undefined && r.year && r.month && r.faenaid){
+          const y=Number(r.year), m=Number(r.month)-1, fid=String(r.faenaid).trim();
+          if(m>=0 && m<12){ if(!nextMetas[fid]) nextMetas[fid]={}; if(!nextMetas[fid][y]) nextMetas[fid][y]=Array(12).fill(0); nextMetas[fid][y][m]=toNumberLike(r.meta); metasSet++; }
+          continue;
+        }
+        if(r.facturable!==undefined && r.year && r.month && r.faenaid){
+          const y=Number(r.year), m=Number(r.month)-1, fid=String(r.faenaid).trim();
+          if(m>=0 && m<12){ if(!nextHist[fid]) nextHist[fid]={}; if(!nextHist[fid][y]) nextHist[fid][y]=Array(12).fill(0); nextHist[fid][y][m]=toNumberLike(r.facturable); histSet++; }
+          continue;
+        }
+        if(r.faenaid && r.empresa && r.fecha){
+          const inv={
+            __id: (r.numero||"")+ "_" + (toISODate(r.fecha)||"") + "_" + Math.random().toString(36).slice(2,7),
+            faenaId:(r.faenaid||"F1").toString().trim(),
+            empresa:(r.empresa||r.cliente||"").toString().trim(),
+            fecha:toISODate(r.fecha||r.date||""),
+            monto:toNumberLike(r.monto??r.importe??r.valor),
+            status:(()=>{ const s=(r.status||r.estado||"").toString().trim().toLowerCase(); return (s==="pagada"||s==="anulada"||s==="emitida")? s : "pendiente"; })(),
+            numero:(r.numero||r.nro||r.factura||"").toString().trim(),
+            emitida_en:toISODate(r.emitida_en||r.fecha_emision||""),
+            pagada_en:toISODate(r.pagada_en||""),
+            observacion:(r.observacion||"").toString().trim(),
+            objetivo_mes:(r.objetivo_mes||ymKey(r.fecha)||"").toString().trim(),
+            castigo_pct: Number(r.castigo_pct ?? r.castigo ?? "")
+          };
+          let idx=-1;
+          if(inv.numero) idx=findByNumero(nextInv,inv.numero);
+          if(idx<0) idx=findByFields(nextInv,inv.faenaId,inv.empresa,inv.fecha);
+          if(idx>=0){ const cur=nextInv[idx]; nextInv[idx]={...cur, ...inv, monto:inv.monto||cur.monto, status:inv.status||cur.status}; invUpdated++; }
+          else { nextInv.push(inv); invAdded++; }
+        }
+      }
+      setInvoices(nextInv); setMetas(nextMetas); setFactHist(nextHist);
+      try{localStorage.setItem("df_invoices",JSON.stringify(nextInv)); localStorage.setItem("df_fact_hist",JSON.stringify(nextHist)); localStorage.setItem("df_metas",JSON.stringify(nextMetas));}catch{}
+      return {metasSet, histSet, invAdded, invUpdated};
+    }catch(e){ console.error(e); return false; }
+  };
+
+  const tabs = [
+    {value:"dashboard",label:"Dashboard",emoji:"📊"},
+    {value:"pendientes",label:"Pendientes",emoji:"⏳"},
+    {value:"facturas",label:"Facturas",emoji:"🧾"},
+    {value:"castigos",label:"Castigos",emoji:"🛡️"},
+    {value:"import",label:"Importar",emoji:"📥"},
+  ];
+
+  return(
+    <div className="min-h-screen">
+      <header className="sticky top-0 bg-white/90 backdrop-blur border-b border-gray-200">
+        <div className="max-w-[1400px] mx-auto px-4 py-3 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="size-9 grid place-items-center rounded-xl bg-indigo-600 text-white"><span className="text-xs font-bold">DF</span></div>
+            <div>
+              <div className="text-3xl font-bold">Dashboard Facturación vs Meta <span className="text-indigo-600">v8.6</span></div>
+              <div className="text-[11px] text-gray-500 -mt-0.5">Proyecto: DSL • Web-only</div>
+            </div>
+          </div>
+          <div className="flex items-end gap-2">
+            <label className="grid gap-1 text-xs text-gray-700">Rol
+              <select value={role} onChange={e=>setRole(e.target.value)} className="rounded-xl border px-3 py-2 bg-white">
+                <option value="director">Director</option>
+                <option value="jefatura">Jefatura</option>
+                <option value="faena">Faena</option>
+              </select>
+            </label>
+            {role==="jefatura" && (
+              <label className="grid gap-1 text-xs text-gray-700">Jefatura
+                <select value={scopeJef} onChange={e=>setScopeJef(e.target.value)} className="rounded-xl border px-3 py-2 bg-white">
+                  {seedJefaturas.map(j=><option key={j.id} value={j.id}>{j.nombre}</option>)}
+                </select>
+              </label>
+            )}
+            {role==="faena" && (
+              <label className="grid gap-1 text-xs text-gray-700">Faena
+                <select value={scopeFaena} onChange={e=>setScopeFaena(e.target.value)} className="rounded-xl border px-3 py-2 bg-white">
+                  {seedFaenas.map(f=><option key={f.id} value={f.id}>{f.nombre}</option>)}
+                </select>
+              </label>
+            )}
+            <label className="grid gap-1 text-xs text-gray-700">Año
+              <select value={picker.year} onChange={e=>setPicker(p=>({...p,year:Number(e.target.value)}))} className="rounded-xl border px-3 py-2 bg-white">
+                {YEARS.map(y=><option key={y} value={y}>{y}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs text-gray-700">Mes
+              <select value={picker.month} onChange={e=>setPicker(p=>({...p,month:Number(e.target.value)}))} className="rounded-xl border px-3 py-2 bg-white">
+                <option value={-1}>Todas</option>
+                {MONTHS.map((m,i)=><option key={m} value={i}>{m}</option>)}
+              </select>
+            </label>
+            <button onClick={()=>window.DF_logout()} className="btn rounded-xl px-3 py-2">🚪 Cerrar sesión</button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-[1400px] mx-auto px-4 py-6 grid gap-4">
+        <Tabs tabs={tabs} value={tab} onChange={setTab}/>
+        {tab==="dashboard" && <DashboardView picker={picker} metas={metas} factHist={factHist} invoices={invoices} role={role} scopeJef={scopeJef} scopeFaena={scopeFaena}/>}
+        {tab==="facturas" && <FacturasView invoices={invoices} setInvoices={setInvoices} picker={picker} role={role} scopeJef={scopeJef} scopeFaena={scopeFaena}/>}
+        {tab==="pendientes" && <PendientesView invoices={invoices} setInvoices={setInvoices} role={role} scopeJef={scopeJef} scopeFaena={scopeFaena} picker={picker}/>}
+        {tab==="castigos" && <CastigosView invoices={invoices} role={role} scopeJef={scopeJef} scopeFaena={scopeFaena}/>}
+        {tab==="import" && <ImportView onImport={onImport} metas={metas} factHist={factHist} picker={picker} invoices={invoices}/>}
+      </main>
+    </div>
+  );
+}
+
+const root=ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App/>);
+</script>
+</body>
+</html>
