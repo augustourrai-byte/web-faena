@@ -529,7 +529,7 @@ function NotasPendientes() {
 
 function FoodCostDesviaciones() {
 
-  const STORAGE_KEY = "faena_food_cost_v2";
+  const STORAGE_KEY = "faena_food_cost_v3";
 
   const [data, setData] = React.useState(() => {
     const d = localStorage.getItem(STORAGE_KEY);
@@ -544,8 +544,7 @@ function FoodCostDesviaciones() {
     r_real: "",
     precosto: "",
     imp_real: "",
-    venta_plan: "",
-    venta_real: ""
+    precio_venta: ""
   });
 
   React.useEffect(()=>{
@@ -555,28 +554,43 @@ function FoodCostDesviaciones() {
   const n = (v) => Number(String(v||"0").replace(/\./g,""));
 
   const calc = (r) => {
+
     const rp = n(r.r_plan);
     const rr = n(r.r_real);
     const pre = n(r.precosto);
     const imp = n(r.imp_real);
-    const vp = n(r.venta_plan);
-    const vr = n(r.venta_real);
+    const pv = n(r.precio_venta);
 
+    // Ventas automáticas
+    const ventaPlan = rp * pv;
+    const ventaReal = rr * pv;
+
+    // Costos
     const costoPlan = rp * pre;
     const costoReal = rr * imp;
 
+    // Impactos
     const impactoVol = (rr - rp) * pre;
     const impactoPrecio = (imp - pre) * rr;
     const impactoTotal = costoReal - costoPlan;
 
-    const fcPlan = vp > 0 ? (costoPlan / vp) * 100 : 0;
-    const fcReal = vr > 0 ? (costoReal / vr) * 100 : 0;
+    // FC
+    const fcPlan = ventaPlan > 0 ? (costoPlan / ventaPlan) * 100 : 0;
+    const fcReal = ventaReal > 0 ? (costoReal / ventaReal) * 100 : 0;
 
+    // Estado
     let estado = "Controlado";
     if (impactoTotal > 500000) estado = "Crítico";
     else if (impactoTotal > 150000) estado = "Alerta";
 
-    return { rp, rr, pre, imp, costoPlan, costoReal, impactoVol, impactoPrecio, impactoTotal, fcPlan, fcReal, estado };
+    return {
+      rp, rr, pre, imp, pv,
+      ventaPlan, ventaReal,
+      costoPlan, costoReal,
+      impactoVol, impactoPrecio, impactoTotal,
+      fcPlan, fcReal,
+      estado
+    };
   };
 
   const add = () => {
@@ -584,7 +598,7 @@ function FoodCostDesviaciones() {
   };
 
   const remove = (id) => {
-    if(confirm("Eliminar?")){
+    if(confirm("Eliminar registro?")){
       setData(data.filter(x => x.id !== id));
     }
   };
@@ -605,7 +619,10 @@ IMP Real: ${c.imp}
 
 Impacto Volumen: $${c.impactoVol.toLocaleString("es-CL")}
 Impacto Precio: $${c.impactoPrecio.toLocaleString("es-CL")}
-Impacto Total: $${c.impactoTotal.toLocaleString("es-CL")}`,
+Impacto Total: $${c.impactoTotal.toLocaleString("es-CL")}
+
+FC Plan: ${c.fcPlan.toFixed(2)}%
+FC Real: ${c.fcReal.toFixed(2)}%`,
       responsable: "Augusto Urra",
       categoria: "Food",
       tipo: "Desviación FC",
@@ -632,6 +649,7 @@ Impacto Total: $${c.impactoTotal.toLocaleString("es-CL")}`,
       <h1 className="text-2xl font-bold">Food Cost - Análisis Diario</h1>
 
       <div className="grid grid-cols-4 gap-4">
+
         <div className="bg-white p-4 rounded shadow">
           <div>Impacto Total</div>
           <div className="text-2xl font-bold text-red-600">${totalImpacto.toLocaleString("es-CL")}</div>
@@ -639,33 +657,39 @@ Impacto Total: $${c.impactoTotal.toLocaleString("es-CL")}`,
 
         <div className="bg-white p-4 rounded shadow">
           <div>Impacto Volumen</div>
-          <div className="text-xl">${totalVol.toLocaleString("es-CL")}</div>
+          <div>${totalVol.toLocaleString("es-CL")}</div>
         </div>
 
         <div className="bg-white p-4 rounded shadow">
           <div>Impacto Precio</div>
-          <div className="text-xl">${totalPrecio.toLocaleString("es-CL")}</div>
+          <div>${totalPrecio.toLocaleString("es-CL")}</div>
         </div>
 
         <div className="bg-white p-4 rounded shadow">
           <div>Registros</div>
-          <div className="text-xl">{data.length}</div>
+          <div>{data.length}</div>
         </div>
+
       </div>
 
       <div className="bg-white p-4 rounded shadow space-y-2">
+
         <h2 className="font-bold">Ingreso</h2>
 
-        <input placeholder="Casino" onChange={e=>setForm({...form,casino:e.target.value})}/>
-        <input placeholder="Servicio" onChange={e=>setForm({...form,servicio:e.target.value})}/>
-        <input placeholder="Raciones Plan" onChange={e=>setForm({...form,r_plan:e.target.value})}/>
-        <input placeholder="Raciones Real" onChange={e=>setForm({...form,r_real:e.target.value})}/>
-        <input placeholder="PreCosto" onChange={e=>setForm({...form,precosto:e.target.value})}/>
-        <input placeholder="IMP Real" onChange={e=>setForm({...form,imp_real:e.target.value})}/>
-        <input placeholder="Venta Plan" onChange={e=>setForm({...form,venta_plan:e.target.value})}/>
-        <input placeholder="Venta Real" onChange={e=>setForm({...form,venta_real:e.target.value})}/>
+        <div className="grid grid-cols-4 gap-2">
+
+          <input placeholder="Casino" onChange={e=>setForm({...form,casino:e.target.value})}/>
+          <input placeholder="Servicio" onChange={e=>setForm({...form,servicio:e.target.value})}/>
+          <input placeholder="Rac Plan" onChange={e=>setForm({...form,r_plan:e.target.value})}/>
+          <input placeholder="Rac Real" onChange={e=>setForm({...form,r_real:e.target.value})}/>
+          <input placeholder="PreCosto" onChange={e=>setForm({...form,precosto:e.target.value})}/>
+          <input placeholder="IMP Real" onChange={e=>setForm({...form,imp_real:e.target.value})}/>
+          <input placeholder="Precio Venta" onChange={e=>setForm({...form,precio_venta:e.target.value})}/>
+
+        </div>
 
         <button onClick={add} className="bg-black text-white px-4 py-2">Agregar</button>
+
       </div>
 
       <table className="w-full text-sm bg-white rounded shadow">
@@ -674,6 +698,8 @@ Impacto Total: $${c.impactoTotal.toLocaleString("es-CL")}`,
             <th>Fecha</th>
             <th>Servicio</th>
             <th>Casino</th>
+            <th>Venta</th>
+            <th>FC</th>
             <th>Impacto</th>
             <th>Estado</th>
             <th>Acción</th>
@@ -688,6 +714,8 @@ Impacto Total: $${c.impactoTotal.toLocaleString("es-CL")}`,
                 <td>{r.fecha}</td>
                 <td>{r.servicio}</td>
                 <td>{r.casino}</td>
+                <td>${c.ventaReal.toLocaleString("es-CL")}</td>
+                <td>{c.fcReal.toFixed(2)}%</td>
                 <td className="text-red-600 font-bold">${c.impactoTotal.toLocaleString("es-CL")}</td>
                 <td>{c.estado}</td>
                 <td className="flex gap-2">
