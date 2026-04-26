@@ -1016,31 +1016,6 @@ function readWorkbookFile(file, callback){
     reader.readAsArrayBuffer(file);
   }
 }
-  const reader = new FileReader();
-
-  reader.onload = function(e){
-    try{
-      let workbook;
-      if(file.name.toLowerCase().endsWith(".csv")){
-        workbook = XLSX.read(e.target.result, { type:"string" });
-      }else{
-        workbook = XLSX.read(new Uint8Array(e.target.result), { type:"array" });
-      }
-
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sheet, { defval:"" });
-      callback(null, rows);
-    }catch(err){
-      callback(err);
-    }
-  };
-
-  if(file.name.toLowerCase().endsWith(".csv")){
-    reader.readAsText(file, "utf-8");
-  }else{
-    reader.readAsArrayBuffer(file);
-  }
-}
 
 function parseImportedRows(rows, type){
   const out = [];
