@@ -527,6 +527,474 @@ function NotasPendientes() {
   );
 }
 
+function FoodCostDesviaciones() {
+  const STORAGE_KEY = "faena_foodcost_desviaciones";
+
+  const [registros, setRegistros] = React.useState(() => {
+    const data = localStorage.getItem(STORAGE_KEY);
+    return data ? JSON.parse(data) : [];
+  });
+
+  const [vista, setVista] = React.useState("resumen");
+  const [editandoId, setEditandoId] = React.useState(null);
+  const [filtroServicio, setFiltroServicio] = React.useState("");
+  const [filtroPunto, setFiltroPunto] = React.useState("");
+  const [filtroSemaforo, setFiltroSemaforo] = React.useState("");
+  const [busqueda, setBusqueda] = React.useState("");
+
+  const formInicial = {
+    fecha: new Date().toISOString().slice(0, 10),
+    area: "Food",
+    servicio: "",
+    punto: "",
+    ventaReal: "",
+    costoReal: "",
+    fcObjetivo: "",
+    responsable: "Augusto Urra",
+    comentario: ""
+  };
+
+  const [form, setForm] = React.useState(formInicial);
+
+  React.useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(registros));
+  }, [registros]);
+
+  const numero = (v) => Number(String(v || "0").replace(/\./g, "").replace(",", "."));
+
+  const fcReal = (r) => {
+    const venta = numero(r.ventaReal);
+    const costo = numero(r.costoReal);
+    return venta > 0 ? (costo / venta) * 100 : 0;
+  };
+
+  const costoObjetivo = (r) => {
+    return numero(r.ventaReal) * (numero(r.fcObjetivo) / 100);
+  };
+
+  const impacto = (r) => {
+    return numero(r.costoReal) - costoObjetivo(r);
+  };
+
+  const desviacionPP = (r) => {
+    return fcReal(r) - numero(r.fcObjetivo);
+  };
+
+  const semaforo = (r) => {
+    const imp = impacto(r);
+    const pp = desviacionPP(r);
+
+    if (imp > 1000000 || pp >= 5) return "Alto";
+    if (imp > 0 || pp > 0) return "Medio";
+    return "Bajo";
+  };
+
+  const servicios = [...new Set(registros.map(r => r.servicio).filter(Boolean))];
+  const puntos = [...new Set(registros.map(r => r.punto).filter(Boolean))];
+
+  const registrosFiltrados = registros
+    .filter(r => !filtroServicio || r.servicio === filtroServicio)
+    .filter(r => !filtroPunto || r.punto === filtroPunto)
+    .filter(r => !filtroSemaforo || semaforo(r) === filtroSemaforo)
+    .filter(r => {
+      if (!busqueda) return true;
+      const texto = `${r.area} ${r.servicio} ${r.punto} ${r.responsable} ${r.comentario}`.toLowerCase();
+      return texto.includes(busqueda.toLowerCase());
+    })
+    .sort((a, b) => impacto(b) - impacto(a));
+
+  const totalVenta = registrosFiltrados.reduce((a, r) => a + numero(r.ventaReal), 0);
+  const totalCosto = registrosFiltrados.reduce((a, r) => a + numero(r.costoReal), 0);
+  const totalObjetivo = registrosFiltrados.reduce((a, r) => a + costoObjetivo(r), 0);
+  const impactoTotal = totalCosto - totalObjetivo;
+  const fcRealTotal = totalVenta > 0 ? (totalCosto / totalVenta) * 100 : 0;
+  const fcObjetivoTotal = totalVenta > 0 ? (totalObjetivo / totalVenta) * 100 : 0;
+
+  const casosAltos = registrosFiltrados.filter(r => semaforo(r) === "Alto").length;
+  const casosMedios = registrosFiltrados.filter(r => semaforo(r) === "Medio").length;
+  const casosBajos = registrosFiltrados.filter(r => semaforo(r) === "Bajo").length;
+
+  const formato = (n) => "$" + Math.round(Number(n || 0)).toLocaleString("es-CL");
+  const pct = (n) => Number(n || 0).toFixed(1) + "%";
+
+  const guardarRegistro = () => {
+    if (!form.fecha || !form.servicio || !form.punto) {
+      alert("Debes completar fecha, servicio y punto.");
+      return;
+    }
+
+    if (!form.ventaReal || !form.costoReal || !form.fcObjetivo) {
+      alert("Debes completar venta real, costo real y FC objetivo.");
+      return;
+    }
+
+    if (editandoId) {
+      setRegistros(registros.map(r => r.id === editandoId ? { ...form, id: editandoId } : r));
+    } else {
+      setRegistros([{ id: Date.now(), ...form }, ...registros]);
+    }
+
+    setForm(formInicial);
+    setEditandoId(null);
+    setVista("resumen");
+  };
+
+  const editarRegistro = (r) => {
+    setForm(r);
+    setEditandoId(r.id);
+    setVista("nuevo");
+  };
+
+  const eliminarRegistro = (id) => {
+    if (confirm("¿Eliminar este registro?")) {
+      setRegistros(registros.filter(r => r.id !== id));
+    }
+  };
+
+  const limpiarFiltros = () => {
+    setFiltroServicio("");
+    setFiltroPunto("");
+    setFiltroSemaforo("");
+    setBusqueda("");
+  };
+
+  const exportarCSV = () => {
+    const headers = [
+      "Fecha", "Area", "Servicio", "Punto", "Venta real", "Costo real",
+      "FC objetivo", "FC real", "Desviacion PP", "Impacto", "Semaforo",
+      "Responsable", "Comentario"
+    ];
+
+    const rows = registrosFiltrados.map(r => [
+      r.fecha,
+      r.area,
+      r.servicio,
+      r.punto,
+      r.ventaReal,
+      r.costoReal,
+      r.fcObjetivo,
+      fcReal(r).toFixed(2),
+      desviacionPP(r).toFixed(2),
+      Math.round(impacto(r)),
+      semaforo(r),
+      r.responsable,
+      r.comentario
+    ]);
+
+    const csv = [headers, ...rows]
+      .map(row => row.map(v => `"${String(v || "").replaceAll('"', '""')}"`).join(";"))
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "food_cost_desviaciones.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importarCSV = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+
+    reader.onload = (event) => {
+      const text = event.target.result;
+      const lines = text.split(/\r?\n/).filter(Boolean);
+      const rows = lines.slice(1);
+
+      const nuevos = rows.map(line => {
+        const cols = line.split(";").map(x => x.replaceAll('"', "").trim());
+
+        return {
+          id: Date.now() + Math.random(),
+          fecha: cols[0] || new Date().toISOString().slice(0, 10),
+          area: cols[1] || "Food",
+          servicio: cols[2] || "",
+          punto: cols[3] || "",
+          ventaReal: cols[4] || "",
+          costoReal: cols[5] || "",
+          fcObjetivo: cols[6] || "",
+          responsable: cols[7] || "Augusto Urra",
+          comentario: cols[8] || ""
+        };
+      }).filter(r => r.servicio && r.punto);
+
+      setRegistros([...nuevos, ...registros]);
+      alert(`Importación completada: ${nuevos.length} registros.`);
+    };
+
+    reader.readAsText(file, "utf-8");
+  };
+
+  const enviarABitacora = (r) => {
+    const nuevoCaso = {
+      id: Date.now(),
+      fecha: new Date().toISOString().slice(0, 10),
+      titulo: `Desviación Food Cost - ${r.servicio} - ${r.punto}`,
+      detalle:
+`Fecha: ${r.fecha}
+Área: ${r.area}
+Servicio: ${r.servicio}
+Punto: ${r.punto}
+Venta real: ${formato(numero(r.ventaReal))}
+Costo real: ${formato(numero(r.costoReal))}
+Food Cost objetivo: ${pct(numero(r.fcObjetivo))}
+Food Cost real: ${pct(fcReal(r))}
+Desviación: ${desviacionPP(r).toFixed(1)} pp
+Impacto estimado: ${formato(impacto(r))}
+
+Comentario: ${r.comentario || "-"}
+
+Caso generado desde módulo Food Cost.`,
+      responsable: r.responsable || "Augusto Urra",
+      categoria: "Food",
+      tipo: "Riesgo costo",
+      empresa: r.punto,
+      fecha_compromiso: "",
+      monto: Math.round(Math.max(impacto(r), 0)),
+      edp: "No",
+      estado: "Abierto",
+      semaforo: semaforo(r)
+    };
+
+    const existentes = JSON.parse(localStorage.getItem("faena_bitacora_operativa") || "[]");
+    localStorage.setItem("faena_bitacora_operativa", JSON.stringify([nuevoCaso, ...existentes]));
+
+    alert("Caso enviado a Bitácora Operativa.");
+  };
+
+  return (
+    <div className="space-y-6">
+
+      <div className="flex justify-between items-start border-b pb-4">
+        <div>
+          <h1 className="text-2xl font-bold">Food Cost - Desviaciones</h1>
+          <p className="text-gray-600">Detector de desviaciones entre costo real y objetivo.</p>
+        </div>
+
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={() => setVista("resumen")} className={`px-4 py-2 rounded-lg border ${vista === "resumen" ? "bg-gray-900 text-white" : "bg-white"}`}>Resumen</button>
+          <button onClick={() => { setVista("nuevo"); setForm(formInicial); setEditandoId(null); }} className={`px-4 py-2 rounded-lg border ${vista === "nuevo" ? "bg-gray-900 text-white" : "bg-white"}`}>Nuevo registro</button>
+          <button onClick={() => setVista("historial")} className={`px-4 py-2 rounded-lg border ${vista === "historial" ? "bg-gray-900 text-white" : "bg-white"}`}>Historial</button>
+        </div>
+      </div>
+
+      <div className="flex gap-2 flex-wrap">
+        <button onClick={exportarCSV} className="bg-white border px-4 py-2 rounded-lg hover:bg-gray-100">Exportar CSV</button>
+
+        <label className="bg-white border px-4 py-2 rounded-lg hover:bg-gray-100 cursor-pointer">
+          Importar CSV
+          <input type="file" accept=".csv" className="hidden" onChange={importarCSV} />
+        </label>
+
+        <button
+          onClick={() => {
+            if (confirm("¿Eliminar todos los registros de Food Cost?")) setRegistros([]);
+          }}
+          className="bg-red-50 text-red-700 border border-red-300 px-4 py-2 rounded-lg hover:bg-red-100"
+        >
+          Vaciar todo
+        </button>
+      </div>
+
+      {vista === "resumen" && (
+        <div className="space-y-6">
+
+          <div className="bg-white rounded-xl shadow p-4">
+            <h2 className="text-xl font-bold">Resumen ejecutivo</h2>
+            <p className="text-gray-600 mb-4">Lectura directa de impacto económico y desviación porcentual.</p>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 xl:grid-cols-7 gap-3">
+              <div className="bg-blue-50 border border-blue-300 rounded-xl p-4">
+                <div className="text-sm">Venta real</div>
+                <div className="text-2xl font-bold">{formato(totalVenta)}</div>
+              </div>
+
+              <div className="bg-gray-50 border border-gray-300 rounded-xl p-4">
+                <div className="text-sm">Costo real</div>
+                <div className="text-2xl font-bold">{formato(totalCosto)}</div>
+              </div>
+
+              <div className="bg-green-50 border border-green-300 rounded-xl p-4">
+                <div className="text-sm">FC objetivo</div>
+                <div className="text-2xl font-bold">{pct(fcObjetivoTotal)}</div>
+              </div>
+
+              <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4">
+                <div className="text-sm">FC real</div>
+                <div className="text-2xl font-bold">{pct(fcRealTotal)}</div>
+              </div>
+
+              <div className={`${impactoTotal > 0 ? "bg-red-50 border-red-300" : "bg-green-50 border-green-300"} border rounded-xl p-4`}>
+                <div className="text-sm">Impacto</div>
+                <div className="text-2xl font-bold">{formato(impactoTotal)}</div>
+              </div>
+
+              <div className="bg-red-50 border border-red-300 rounded-xl p-4">
+                <div className="text-sm">Casos altos</div>
+                <div className="text-3xl font-bold">{casosAltos}</div>
+              </div>
+
+              <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4">
+                <div className="text-sm">Casos medios</div>
+                <div className="text-3xl font-bold">{casosMedios}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow p-4">
+            <h2 className="text-xl font-bold">Filtros</h2>
+
+            <div className="flex flex-wrap gap-2 mt-3">
+              <input className="border rounded px-3 py-2" placeholder="Buscar..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
+
+              <select className="border rounded px-3 py-2" value={filtroServicio} onChange={e => setFiltroServicio(e.target.value)}>
+                <option value="">Todos los servicios</option>
+                {servicios.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+
+              <select className="border rounded px-3 py-2" value={filtroPunto} onChange={e => setFiltroPunto(e.target.value)}>
+                <option value="">Todos los puntos</option>
+                {puntos.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+
+              <select className="border rounded px-3 py-2" value={filtroSemaforo} onChange={e => setFiltroSemaforo(e.target.value)}>
+                <option value="">Todos los semáforos</option>
+                <option>Alto</option>
+                <option>Medio</option>
+                <option>Bajo</option>
+              </select>
+
+              <button onClick={limpiarFiltros} className="bg-gray-200 px-3 py-2 rounded">Limpiar filtros</button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl shadow p-4">
+            <h2 className="text-xl font-bold">Ranking de impacto</h2>
+            <p className="text-gray-600 mb-4">Ordenado desde mayor impacto económico negativo.</p>
+
+            {registrosFiltrados.length === 0 && (
+              <div className="text-center text-gray-500 p-6 border rounded-xl">No existen registros.</div>
+            )}
+
+            <div className="space-y-4">
+              {registrosFiltrados.slice(0, 20).map(r => (
+                <div key={r.id} className={`border rounded-xl p-4 ${
+                  semaforo(r) === "Alto" ? "bg-red-50 border-red-300" :
+                  semaforo(r) === "Medio" ? "bg-yellow-50 border-yellow-300" :
+                  "bg-green-50 border-green-300"
+                }`}>
+                  <div className="flex justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        <span className="bg-white border px-3 py-1 rounded-full text-xs">{r.fecha}</span>
+                        <span className="bg-white border px-3 py-1 rounded-full text-xs">{r.area}</span>
+                        <span className="bg-white border px-3 py-1 rounded-full text-xs">{r.servicio}</span>
+                        <span className="bg-white border px-3 py-1 rounded-full text-xs">{r.punto}</span>
+                        <span className="bg-white border px-3 py-1 rounded-full text-xs">Semáforo {semaforo(r)}</span>
+                      </div>
+
+                      <h3 className="text-lg font-bold">{r.servicio} / {r.punto}</h3>
+
+                      <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mt-4 text-sm">
+                        <div><b>Venta:</b> {formato(numero(r.ventaReal))}</div>
+                        <div><b>Costo:</b> {formato(numero(r.costoReal))}</div>
+                        <div><b>FC objetivo:</b> {pct(numero(r.fcObjetivo))}</div>
+                        <div><b>FC real:</b> {pct(fcReal(r))}</div>
+                        <div><b>Desv. pp:</b> {desviacionPP(r).toFixed(1)}</div>
+                        <div><b>Impacto:</b> {formato(impacto(r))}</div>
+                      </div>
+
+                      {r.comentario && (
+                        <div className="mt-3 text-sm text-gray-700">{r.comentario}</div>
+                      )}
+                    </div>
+
+                    <div className="w-56 space-y-2">
+                      <button onClick={() => enviarABitacora(r)} className="w-full bg-gray-900 text-white px-4 py-2 rounded-lg">Enviar a bitácora</button>
+                      <button onClick={() => editarRegistro(r)} className="w-full bg-white border px-4 py-2 rounded-lg">Editar</button>
+                      <button onClick={() => eliminarRegistro(r.id)} className="w-full bg-red-600 text-white px-4 py-2 rounded-lg">Eliminar</button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      {vista === "nuevo" && (
+        <div className="bg-white rounded-xl shadow p-4">
+          <h2 className="text-xl font-bold mb-4">{editandoId ? "Editar registro" : "Nuevo registro Food Cost"}</h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="text-sm font-semibold">Fecha</label>
+              <input type="date" className="w-full border rounded p-2" value={form.fecha} onChange={e => setForm({ ...form, fecha: e.target.value })} />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold">Área</label>
+              <select className="w-full border rounded p-2" value={form.area} onChange={e => setForm({ ...form, area: e.target.value })}>
+                <option>Food</option>
+                <option>Retail</option>
+                <option>Facility</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold">Servicio</label>
+              <input className="w-full border rounded p-2" placeholder="Ej: Almuerzo, Cena, Desayuno" value={form.servicio} onChange={e => setForm({ ...form, servicio: e.target.value })} />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold">Punto / Casino</label>
+              <input className="w-full border rounded p-2" placeholder="Ej: CAES, CAP, CF" value={form.punto} onChange={e => setForm({ ...form, punto: e.target.value })} />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold">Venta real</label>
+              <input className="w-full border rounded p-2" placeholder="Ej: 15000000" value={form.ventaReal} onChange={e => setForm({ ...form, ventaReal: e.target.value })} />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold">Costo real</label>
+              <input className="w-full border rounded p-2" placeholder="Ej: 6500000" value={form.costoReal} onChange={e => setForm({ ...form, costoReal: e.target.value })} />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold">Food Cost objetivo (%)</label>
+              <input className="w-full border rounded p-2" placeholder="Ej: 42" value={form.fcObjetivo} onChange={e => setForm({ ...form, fcObjetivo: e.target.value })} />
+            </div>
+
+            <div>
+              <label className="text-sm font-semibold">Responsable</label>
+              <input className="w-full border rounded p-2" value={form.responsable} onChange={e => setForm({ ...form, responsable: e.target.value })} />
+            </div>
+
+            <div className="md:col-span-3">
+              <label className="text-sm font-semibold">Comentario / causa probable</label>
+              <textarea className="w-full border rounded p-2" rows="4" value={form.comentario} onChange={e => setForm({ ...form, comentario: e.target.value })}></textarea>
+            </div>
+
+            <div className="md:col-span-3 flex gap-2">
+              <button onClick={guardarRegistro} className="bg-gray-900 text-white px-4 py-2 rounded-lg">Guardar</button>
+              <button onClick={() => { setForm(formInicial); setEditandoId(null); setVista("resumen"); }} className="bg-white border px-4 py-2 rounded-lg">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {vista === "historial" && (
+        <div className="bg-white rounded-xl shadow overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-200">
+                 
+    
 function App() {
   const [view, setView] = React.useState("dashboard");
 
