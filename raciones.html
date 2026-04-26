@@ -1015,9 +1015,10 @@ function readWorkbookFile(file, callback){
   }else{
     reader.readAsArrayBuffer(file);
   }
+}
 
 function parseImportedRows(rows, type){
-  const out = [];
+const out = [];
 
   if(type === "sistema"){
     rows.forEach(row => {
@@ -1045,8 +1046,7 @@ function parseImportedRows(rows, type){
         cantidad
       });
     });
-  }
-
+  
   if(type === "simple"){
     rows.forEach(row => {
       const fecha = parseDateToISO(getHeaderValue(row,"FECHA"));
