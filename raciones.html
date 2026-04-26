@@ -985,6 +985,42 @@ function readWorkbookFile(file, callback){
   reader.onload = function(e){
     try{
       let workbook;
+
+      if(file.name.toLowerCase().endsWith(".csv")){
+        workbook = XLSX.read(e.target.result, {
+          type: "string",
+          FS: ";"
+        });
+      }else{
+        workbook = XLSX.read(new Uint8Array(e.target.result), {
+          type: "array"
+        });
+      }
+
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+
+      const rows = XLSX.utils.sheet_to_json(sheet, {
+        defval: "",
+        raw: false
+      });
+
+      callback(null, rows);
+    }catch(err){
+      callback(err);
+    }
+  };
+
+  if(file.name.toLowerCase().endsWith(".csv")){
+    reader.readAsText(file, "windows-1252");
+  }else{
+    reader.readAsArrayBuffer(file);
+  }
+}
+  const reader = new FileReader();
+
+  reader.onload = function(e){
+    try{
+      let workbook;
       if(file.name.toLowerCase().endsWith(".csv")){
         workbook = XLSX.read(e.target.result, { type:"string" });
       }else{
