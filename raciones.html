@@ -695,6 +695,47 @@ function exportExcel(headers, rows, filename){
   XLSX.writeFile(wb, `${filename}.xlsx`);
 }
 
+function downloadCSVTemplate(filename, headers, sampleRows){
+  const csv = [headers, ...sampleRows]
+    .map(row => row.map(v => `"${String(v || "").replaceAll('"', '""')}"`).join(";"))
+    .join("\n");
+
+  const blob = new Blob([csv], { type:"text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function validarColumnas(rows, requiredHeaders){
+  if(!rows || !rows.length){
+    return "El archivo no contiene filas.";
+  }
+
+  const headersArchivo = Object.keys(rows[0]).map(h => normalizeText(h));
+  const faltantes = requiredHeaders.filter(h => !headersArchivo.includes(normalizeText(h)));
+
+  if(faltantes.length){
+    return "Faltan columnas obligatorias: " + faltantes.join(", ");
+  }
+
+  return "";
+}
+
+function exportPDF(headers, rows, filename){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:"landscape" });
+
+  doc.autoTable({
+    head:[headers],
+    body:rows
+  });
+
+  doc.save(`${filename}.pdf`);
+}
+  
 function enviarCasoRacionesABitacora(row){
   const diferencia = Number(row.real || 0) - Number(row.curva || 0);
   const porcentaje = row.curva > 0 ? ((diferencia / row.curva) * 100) : 0;
@@ -944,14 +985,25 @@ function readWorkbookFile(file, callback){
   reader.onload = function(e){
     try{
       let workbook;
+
       if(file.name.toLowerCase().endsWith(".csv")){
-        workbook = XLSX.read(e.target.result, { type:"string" });
+        workbook = XLSX.read(e.target.result, {
+          type: "string",
+          FS: ";"
+        });
       }else{
-        workbook = XLSX.read(new Uint8Array(e.target.result), { type:"array" });
+        workbook = XLSX.read(new Uint8Array(e.target.result), {
+          type: "array"
+        });
       }
 
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sheet, { defval:"" });
+
+      const rows = XLSX.utils.sheet_to_json(sheet, {
+        defval: "",
+        raw: false
+      });
+
       callback(null, rows);
     }catch(err){
       callback(err);
@@ -959,14 +1011,14 @@ function readWorkbookFile(file, callback){
   };
 
   if(file.name.toLowerCase().endsWith(".csv")){
-    reader.readAsText(file, "utf-8");
+    reader.readAsText(file, "windows-1252");
   }else{
     reader.readAsArrayBuffer(file);
   }
 }
 
 function parseImportedRows(rows, type){
-  const out = [];
+const out = [];
 
   if(type === "sistema"){
     rows.forEach(row => {
@@ -994,8 +1046,7 @@ function parseImportedRows(rows, type){
         cantidad
       });
     });
-  }
-
+  
   if(type === "simple"){
     rows.forEach(row => {
       const fecha = parseDateToISO(getHeaderValue(row,"FECHA"));
@@ -1333,9 +1384,10 @@ function renderCaptureModule({title, subtitle, collectionName, rows, moduleKey, 
         </div>
       </div>
 
-      <div class="flex gap-3 mt-5 flex-wrap">
-        <button id="btn_${prefix}_guardar" class="rounded-xl bg-slate-900 text-white px-4 py-2 font-semibold">${formEditing[prefix] ? "Actualizar" : "Guardar"}</button>
-        <button id="btn_${prefix}_limpiar" class="rounded-xl border px-4 py-2 font-semibold">Limpiar</button>
+<div class="flex gap-3 mt-5 flex-wrap">
+  <button id="btn_${prefix}_guardar" class="rounded-xl bg-slate-900 text-white px-4 py-2 font-semibold">${formEditing[prefix] ? "Actualizar" : "Guardar"}</button>
+  <button id="btn_${prefix}_limpiar" class="rounded-xl border px-4 py-2 font-semibold">Limpiar</button>
+  <button id="btn_${prefix}_plantilla" class="rounded-xl border px-4 py-2 font-semibold">Descargar plantilla</button>
         ${
           massive ? `
             <input id="${prefix}_file" type="file" accept=".xlsx,.xls,.csv" class="w-full max-w-md rounded-xl border px-3 py-2">
@@ -1399,8 +1451,20 @@ function bindCaptureModule({collectionName, prefix, showEmpresa = false, massive
   const saveBtn = document.getElementById(`btn_${prefix}_guardar`);
   const clearBtn = document.getElementById(`btn_${prefix}_limpiar`);
   const importBtn = document.getElementById(`btn_${prefix}_import`);
+  const plantillaBtn = document.getElementById(`btn_${prefix}_plantilla`);
   const notice = document.getElementById(`${prefix}_notice`);
 
+plantillaBtn?.addEventListener("click", () => {
+  downloadCSVTemplate(
+    `${prefix}_plantilla.csv`,
+    ["FECHA","SERVICIO","PUNTO_SERVICIO","CANTIDAD"],
+    [
+      ["2026-04-21","ALMUERZO","CAES","250"],
+      ["2026-04-21","CENA","CAP","180"]
+    ]
+  );
+});
+  
   saveBtn?.addEventListener("click", async () => {
     if(!validarPeriodoAbierto()) return;
 
@@ -1493,6 +1557,13 @@ function bindCaptureModule({collectionName, prefix, showEmpresa = false, massive
         return;
       }
 
+const errorColumnas = validarColumnas(rows, ["FECHA","SERVICIO","PUNTO_SERVICIO","CANTIDAD"]);
+
+if(errorColumnas){
+  notice.innerHTML = `<div class="notice danger">${errorColumnas}</div>`;
+  return;
+}
+      
       const imported = parseImportedRows(rows, massiveType);
       imported.forEach(r => {
         if(showEmpresa) ensureMasters(r.empresa, r.servicio);
@@ -1574,6 +1645,7 @@ function renderVentaSistema(){
       <div class="flex gap-3 mt-4 flex-wrap">
         <input id="archivo_importar" type="file" accept=".xlsx,.xls,.csv" class="w-full max-w-lg rounded-xl border px-3 py-2">
         <button id="btn_importar_sistema" class="rounded-xl bg-slate-900 text-white px-4 py-2 font-semibold">Importar</button>
+        <button id="btn_plantilla_sistema" class="rounded-xl border px-4 py-2 font-semibold">Descargar plantilla</button>
         <button id="btn_limpiar_sistema" class="rounded-xl border px-4 py-2 font-semibold">Limpiar selección</button>
         <button id="btn_vaciar_sistema_mes" class="rounded-xl border px-4 py-2 font-semibold">Vaciar período actual</button>
       </div>
@@ -1592,6 +1664,18 @@ function bindVentaSistemaEvents(){
   const importBtn = document.getElementById("btn_importar_sistema");
   const clearBtn = document.getElementById("btn_limpiar_sistema");
   const emptyBtn = document.getElementById("btn_vaciar_sistema_mes");
+  const plantillaSistemaBtn = document.getElementById("btn_plantilla_sistema");
+
+plantillaSistemaBtn?.addEventListener("click", () => {
+  downloadCSVTemplate(
+    "venta_sistema_plantilla.csv",
+    ["NOMBRE_EMPRESA","SERVICIO","FECHA","EQUIPO","PRECIO"],
+    [
+      ["EMPRESA A","ALMUERZO","2026-04-21","F","270"],
+      ["EMPRESA B","CENA","2026-04-21","C","180"]
+    ]
+  );
+});
   const out = document.getElementById("resultado_importacion");
 
   importBtn?.addEventListener("click", async () => {
@@ -1611,6 +1695,13 @@ function bindVentaSistemaEvents(){
         return;
       }
 
+const errorColumnas = validarColumnas(rows, ["NOMBRE_EMPRESA","SERVICIO","FECHA","EQUIPO","PRECIO"]);
+
+if(errorColumnas){
+  out.innerHTML = `<div class="notice danger">${errorColumnas}</div>`;
+  return;
+}
+      
       const imported = parseImportedRows(rows, "sistema");
       imported.forEach(r => ensureMasters(r.empresa, r.servicio));
       db.ventaSistema.push(...imported);
@@ -1691,6 +1782,7 @@ function renderCurva(){
         <div class="flex gap-3 mt-4 flex-wrap">
           <input id="curva_file" type="file" accept=".xlsx,.xls,.csv" class="w-full max-w-md rounded-xl border px-3 py-2">
           <button id="btnImportCurvaEECC" class="rounded-xl border px-4 py-2 font-semibold">Importar archivo EECC</button>
+          <button id="btnPlantillaCurvaEECC" class="rounded-xl border px-4 py-2 font-semibold">Descargar plantilla curva</button>
           <button id="btnVaciarCurvaMes" class="rounded-xl border px-4 py-2 font-semibold">Vaciar curva del período</button>
         </div>
       </div>
@@ -1740,7 +1832,18 @@ function renderCurva(){
 
 function bindCurva(){
   const notice = document.getElementById("curva_notice");
+document.getElementById("btnPlantillaCurvaEECC")?.addEventListener("click", () => {
+  downloadCSVTemplate(
+    "curva_eecc_plantilla.csv",
+    ["EMPRESA","SERVICIO","1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31"],
+    [
+      ["EMPRESA A","ALMUERZO","250","260","255","","","","","","","","","","","","","","","","","","","","","","","","","","","",""],
+      ["EMPRESA B","CENA","180","190","185","","","","","","","","","","","","","","","","","","","","","","","","","","","",""]
+    ]
+  );
+});
 
+  
   document.getElementById("btnGuardarCurva")?.addEventListener("click", async () => {
     if(!validarPeriodoAbierto()) return;
 
@@ -1797,6 +1900,13 @@ function bindCurva(){
         return;
       }
 
+const errorColumnas = validarColumnas(rows, ["EMPRESA","SERVICIO","1"]);
+
+if(errorColumnas){
+  notice.innerHTML = `<div class="notice danger">${errorColumnas}</div>`;
+  return;
+}
+      
       const imported = parseCurvaEECCRows(rows);
       imported.forEach(r => ensureMasters(r.empresa, r.servicio));
       db.curvaDiaria.push(...imported);
@@ -2622,7 +2732,6 @@ function renderApp(){
       syncMatrixScrolls(`top_${key}`, `wrap_${key}`);
     });
   }, 0);
-}
 
 /* =========================
    INIT
