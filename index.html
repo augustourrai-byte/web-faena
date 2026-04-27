@@ -746,11 +746,11 @@ case "desviaciones":
 case "raciones":
   return (
     <div className="h-full">
-      <iframe
-        src="raciones.html"
-        className="w-full h-[calc(100vh-3rem)] border-0 rounded-xl bg-white"
-        title="Control de Raciones"
-      ></iframe>
+<iframe
+  src={`raciones.html?v=${Date.now()}`}
+  className="w-full h-[calc(100vh-3rem)] border-0 rounded-xl bg-white"
+  title="Control de Raciones"
+></iframe>
     </div>
   );
 case "edp":
