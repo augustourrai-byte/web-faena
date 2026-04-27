@@ -430,40 +430,6 @@ function formatNumber(n){
 function parseDateToISO(value){
   if(value === null || value === undefined || value === "") return "";
 
-  // Caso 1: número Excel
-  if(typeof value === "number"){
-    const d = XLSX.SSF.parse_date_code(value);
-    if(d && d.y && d.m && d.d){
-      return `${d.y}-${String(d.m).padStart(2,"0")}-${String(d.d).padStart(2,"0")}`;
-    }
-  }
-
-  let s = String(value).trim();
-
-  // Caso 2: yyyy-mm-dd
-  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if(m){
-    return `${m[1]}-${String(m[2]).padStart(2,"0")}-${String(m[3]).padStart(2,"0")}`;
-  }
-
-  // Caso 3: FORMATO CHILE dd/mm/yyyy (PRIORIDAD)
-  m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
-  if(m){
-    let dia = Number(m[1]);
-    let mes = Number(m[2]);
-    let anio = Number(m[3]);
-
-    if(anio < 100) anio = 2000 + anio;
-
-    if(dia >= 1 && dia <= 31 && mes >= 1 && mes <= 12){
-      return `${anio}-${String(mes).padStart(2,"0")}-${String(dia).padStart(2,"0")}`;
-    }
-  }
-
-  return "";
-}
-  if(value === null || value === undefined || value === "") return "";
-
   if(typeof value === "number"){
     const d = XLSX.SSF.parse_date_code(value);
     if(d && d.y && d.m && d.d){
@@ -947,11 +913,7 @@ function readWorkbookFile(file, callback){
       }
 
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
- const rows = XLSX.utils.sheet_to_json(sheet, {
-  defval: "",
-  raw: false,
-  dateNF: "dd/mm/yyyy"
-});
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval:"" });
       callback(null, rows);
     }catch(err){
       callback(err);
