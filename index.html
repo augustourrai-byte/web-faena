@@ -712,176 +712,7 @@ index 717f1aa38eed995680b793513a03da4a1462fce5..25ab72ea3ca0fde7a5678c5a123ff287
 --- a/index.html
 +++ b/index.html
 @@ -710,57 +710,170 @@ FC Real: ${c.fcReal.toFixed(2)}%`,
-           {data.map(r=>{
-             const c = calc(r);
-             return (
-               <tr key={r.id} className="border-t">
-                 <td>{r.fecha}</td>
-                 <td>{r.servicio}</td>
-                 <td>{r.casino}</td>
-                 <td>${c.ventaReal.toLocaleString("es-CL")}</td>
-                 <td>{c.fcReal.toFixed(2)}%</td>
-                 <td className="text-red-600 font-bold">${c.impactoTotal.toLocaleString("es-CL")}</td>
-                 <td>{c.estado}</td>
-                 <td className="flex gap-2">
-                   <button onClick={()=>enviar(r)} className="bg-black text-white px-2">Bitácora</button>
-                   <button onClick={()=>remove(r.id)} className="bg-red-500 text-white px-2">X</button>
-                 </td>
-               </tr>
-             );
-           })}
-         </tbody>
-       </table>
- 
-     </div>
-   );
- }
-     
-+
-+function DashboardGeneral() {
-+  const [resumen, setResumen] = React.useState({
-+    bitacoraTotal: 0,
-+    bitacoraAbiertos: 0,
-+    bitacoraCriticos: 0,
-+    foodRegistros: 0,
-+    foodImpacto: 0,
-+    edpRegistros: 0,
-+    edpMonto: 0,
-+    ultimaActualizacion: new Date()
-+  });
-+
-+  const cargarDashboard = () => {
-+    const hoy = new Date().toISOString().slice(0, 10);
-+
-+    const bitacora = JSON.parse(localStorage.getItem("faena_bitacora_operativa") || "[]");
-+    const food = JSON.parse(localStorage.getItem("faena_food_cost_v3") || "[]");
-+    const invoices = JSON.parse(localStorage.getItem("df_invoices") || "[]");
-+
-+    const abiertos = bitacora.filter(c => c.estado !== "Cerrado");
-+    const criticos = abiertos.filter(c => {
-+      const vencido = c.fecha_compromiso && c.fecha_compromiso < hoy;
-+      return vencido || c.semaforo === "Alto";
-+    });
-+
-+    const toNum = (v) => Number(String(v ?? "0").replace(/[^0-9,-]/g, "").replace(/\./g, "").replace(",", ".")) || 0;
-+
-+    const impactoFood = food.reduce((acc, r) => {
-+      const rp = Number(String(r.r_plan || "0").replace(/\./g, "")) || 0;
-+      const rr = Number(String(r.r_real || "0").replace(/\./g, "")) || 0;
-+      const pre = Number(String(r.precosto || "0").replace(/\./g, "")) || 0;
-+      const imp = Number(String(r.imp_real || "0").replace(/\./g, "")) || 0;
-+      const impactoTotal = (rr * imp) - (rp * pre);
-+      return acc + impactoTotal;
-+    }, 0);
-+
-+    const montoEdp = invoices.reduce((acc, item) => acc + toNum(item.facturado ?? item.amount ?? item.monto ?? 0), 0);
-+
-+    setResumen({
-+      bitacoraTotal: bitacora.length,
-+      bitacoraAbiertos: abiertos.length,
-+      bitacoraCriticos: criticos.length,
-+      foodRegistros: food.length,
-+      foodImpacto: impactoFood,
-+      edpRegistros: invoices.length,
-+      edpMonto: montoEdp,
-+      ultimaActualizacion: new Date()
-+    });
-+  };
-+
-+  React.useEffect(() => {
-+    cargarDashboard();
-+    const timer = setInterval(cargarDashboard, 10000);
-+    return () => clearInterval(timer);
-+  }, []);
-+
-+  const card = "bg-white border rounded-xl p-4 shadow-sm";
-+
-+  return (
-+    <div className="space-y-6">
-+      <div className="flex items-start justify-between flex-wrap gap-3">
-+        <div>
-+          <h1 className="text-3xl font-bold">Dashboard General</h1>
-+          <p className="text-gray-600">Vista consolidada de módulos operativos de Web Faena.</p>
-+        </div>
-+        <button onClick={cargarDashboard} className="bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-700">Actualizar</button>
-+      </div>
-+
-+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-+        <div className={card}>
-+          <p className="text-sm text-gray-500">Bitácora - total casos</p>
-+          <p className="text-3xl font-bold">{resumen.bitacoraTotal}</p>
-+        </div>
-+        <div className={card}>
-+          <p className="text-sm text-gray-500">Bitácora - abiertos</p>
-+          <p className="text-3xl font-bold text-blue-700">{resumen.bitacoraAbiertos}</p>
-+        </div>
-+        <div className={card}>
-+          <p className="text-sm text-gray-500">Bitácora - críticos</p>
-+          <p className="text-3xl font-bold text-red-700">{resumen.bitacoraCriticos}</p>
-+        </div>
-+        <div className={card}>
-+          <p className="text-sm text-gray-500">Food Cost - registros</p>
-+          <p className="text-3xl font-bold">{resumen.foodRegistros}</p>
-+        </div>
-+      </div>
-+
-+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-+        <div className="bg-white border rounded-xl p-5 shadow-sm">
-+          <h2 className="text-xl font-semibold mb-3">Impacto Food Cost</h2>
-+          <p className={`text-4xl font-bold ${resumen.foodImpacto > 0 ? "text-red-700" : "text-green-700"}`}>
-+            ${resumen.foodImpacto.toLocaleString("es-CL")}
-+          </p>
-+          <p className="text-sm text-gray-500 mt-2">Acumulado estimado en base a registros del módulo de desviaciones.</p>
-+        </div>
-+
-+        <div className="bg-white border rounded-xl p-5 shadow-sm">
-+          <h2 className="text-xl font-semibold mb-3">EDP Contratistas</h2>
-+          <div className="space-y-2">
-+            <p><span className="text-gray-500">Documentos cargados:</span> <b>{resumen.edpRegistros}</b></p>
-+            <p><span className="text-gray-500">Monto facturado acumulado:</span> <b>${resumen.edpMonto.toLocaleString("es-CL")}</b></p>
-+          </div>
-+        </div>
-+      </div>
-+
-+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-900">
-+        Última actualización: {resumen.ultimaActualizacion.toLocaleString("es-CL")}
-+      </div>
-+    </div>
-+  );
-+}
-+
- function App() {
-   const [view, setView] = React.useState("dashboard");
- 
-   const renderContent = () => {
-     switch (view) {
-       case "dashboard":
-+        return <DashboardGeneral />;
-       case "notas":
-         return <NotasPendientes />;
- case "desviaciones":
-   return <FoodCostDesviaciones />;
- case "raciones":
-   return (
-     <div className="h-full">
- <iframe
-   src="raciones_ok.html?v=1"
-   className="w-full h-[calc(100vh-3rem)] border-0 rounded-xl bg-white"
-   title="Control de Raciones"
- ></iframe>
-     </div>
-   );
- case "edp":
-   return (
-     <div className="h-full">
-       <iframe
-         src="edp.html"
-         className="w-full h-[calc(100vh-3rem)] border-0 rounded-xl bg-white"
-         title="Módulo EDP"
-       ></iframe>
-     </div>
-   );
-       case "devoluciones":
+
         return <h1 className="text-2xl font-bold">Devoluciones</h1>;
       case "status":
         return <h1 className="text-2xl font-bold">Status EDP</h1>;
@@ -893,7 +724,177 @@ index 717f1aa38eed995680b793513a03da4a1462fce5..25ab72ea3ca0fde7a5678c5a123ff287
         return <h1>Selecciona una opción</h1>;
     }
   };
+          {data.map(r=>{
+            const c = calc(r);
+            return (
+              <tr key={r.id} className="border-t">
+                <td>{r.fecha}</td>
+                <td>{r.servicio}</td>
+                <td>{r.casino}</td>
+                <td>${c.ventaReal.toLocaleString("es-CL")}</td>
+                <td>{c.fcReal.toFixed(2)}%</td>
+                <td className="text-red-600 font-bold">${c.impactoTotal.toLocaleString("es-CL")}</td>
+                <td>{c.estado}</td>
+                <td className="flex gap-2">
+                  <button onClick={()=>enviar(r)} className="bg-black text-white px-2">Bitácora</button>
+                  <button onClick={()=>remove(r.id)} className="bg-red-500 text-white px-2">X</button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
 
+    </div>
+  );
+}
+    
+
+function DashboardGeneral() {
+  const [resumen, setResumen] = React.useState({
+    bitacoraTotal: 0,
+    bitacoraAbiertos: 0,
+    bitacoraCriticos: 0,
+    foodRegistros: 0,
+    foodImpacto: 0,
+    edpRegistros: 0,
+    edpMonto: 0,
+    ultimaActualizacion: new Date()
+  });
+
+  const cargarDashboard = () => {
+    const hoy = new Date().toISOString().slice(0, 10);
+
+    const bitacora = JSON.parse(localStorage.getItem("faena_bitacora_operativa") || "[]");
+    const food = JSON.parse(localStorage.getItem("faena_food_cost_v3") || "[]");
+    const invoices = JSON.parse(localStorage.getItem("df_invoices") || "[]");
+
+    const abiertos = bitacora.filter(c => c.estado !== "Cerrado");
+    const criticos = abiertos.filter(c => {
+      const vencido = c.fecha_compromiso && c.fecha_compromiso < hoy;
+      return vencido || c.semaforo === "Alto";
+    });
+
+    const toNum = (v) => Number(String(v ?? "0").replace(/[^0-9,-]/g, "").replace(/\./g, "").replace(",", ".")) || 0;
+
+    const impactoFood = food.reduce((acc, r) => {
+      const rp = Number(String(r.r_plan || "0").replace(/\./g, "")) || 0;
+      const rr = Number(String(r.r_real || "0").replace(/\./g, "")) || 0;
+      const pre = Number(String(r.precosto || "0").replace(/\./g, "")) || 0;
+      const imp = Number(String(r.imp_real || "0").replace(/\./g, "")) || 0;
+      const impactoTotal = (rr * imp) - (rp * pre);
+      return acc + impactoTotal;
+    }, 0);
+
+    const montoEdp = invoices.reduce((acc, item) => acc + toNum(item.facturado ?? item.amount ?? item.monto ?? 0), 0);
+
+    setResumen({
+      bitacoraTotal: bitacora.length,
+      bitacoraAbiertos: abiertos.length,
+      bitacoraCriticos: criticos.length,
+      foodRegistros: food.length,
+      foodImpacto: impactoFood,
+      edpRegistros: invoices.length,
+      edpMonto: montoEdp,
+      ultimaActualizacion: new Date()
+    });
+  };
+
+  React.useEffect(() => {
+    cargarDashboard();
+    const timer = setInterval(cargarDashboard, 10000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const card = "bg-white border rounded-xl p-4 shadow-sm";
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-3xl font-bold">Dashboard General</h1>
+          <p className="text-gray-600">Vista consolidada de módulos operativos de Web Faena.</p>
+        </div>
+        <button onClick={cargarDashboard} className="bg-gray-900 text-white px-4 py-2 rounded-lg hover:bg-gray-700">Actualizar</button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className={card}>
+          <p className="text-sm text-gray-500">Bitácora - total casos</p>
+          <p className="text-3xl font-bold">{resumen.bitacoraTotal}</p>
+        </div>
+        <div className={card}>
+          <p className="text-sm text-gray-500">Bitácora - abiertos</p>
+          <p className="text-3xl font-bold text-blue-700">{resumen.bitacoraAbiertos}</p>
+        </div>
+        <div className={card}>
+          <p className="text-sm text-gray-500">Bitácora - críticos</p>
+          <p className="text-3xl font-bold text-red-700">{resumen.bitacoraCriticos}</p>
+        </div>
+        <div className={card}>
+          <p className="text-sm text-gray-500">Food Cost - registros</p>
+          <p className="text-3xl font-bold">{resumen.foodRegistros}</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white border rounded-xl p-5 shadow-sm">
+          <h2 className="text-xl font-semibold mb-3">Impacto Food Cost</h2>
+          <p className={`text-4xl font-bold ${resumen.foodImpacto > 0 ? "text-red-700" : "text-green-700"}`}>
+            ${resumen.foodImpacto.toLocaleString("es-CL")}
+          </p>
+          <p className="text-sm text-gray-500 mt-2">Acumulado estimado en base a registros del módulo de desviaciones.</p>
+        </div>
+
+        <div className="bg-white border rounded-xl p-5 shadow-sm">
+          <h2 className="text-xl font-semibold mb-3">EDP Contratistas</h2>
+          <div className="space-y-2">
+            <p><span className="text-gray-500">Documentos cargados:</span> <b>{resumen.edpRegistros}</b></p>
+            <p><span className="text-gray-500">Monto facturado acumulado:</span> <b>${resumen.edpMonto.toLocaleString("es-CL")}</b></p>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-900">
+        Última actualización: {resumen.ultimaActualizacion.toLocaleString("es-CL")}
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [view, setView] = React.useState("dashboard");
+
+  const renderContent = () => {
+    switch (view) {
+      case "dashboard":
+        return <h1 className="text-2xl font-bold">Dashboard General</h1>;
+        return <DashboardGeneral />;
+      case "notas":
+        return <NotasPendientes />;
+case "desviaciones":
+  return <FoodCostDesviaciones />;
+case "raciones":
+  return (
+    <div className="h-full">
+<iframe
+  src="raciones_ok.html?v=1"
+  className="w-full h-[calc(100vh-3rem)] border-0 rounded-xl bg-white"
+  title="Control de Raciones"
+></iframe>
+    </div>
+  );
+case "edp":
+  return (
+    <div className="h-full">
+      <iframe
+        src="edp.html"
+        className="w-full h-[calc(100vh-3rem)] border-0 rounded-xl bg-white"
+        title="Módulo EDP"
+      ></iframe>
+    </div>
+  );
+      case "devoluciones":
   return (
     <div className="flex h-screen">
       <div className="w-64 bg-gray-900 text-white p-4 space-y-2">
