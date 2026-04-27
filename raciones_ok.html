@@ -438,13 +438,23 @@ function parseDateToISO(value){
   }
 
   const s = String(value).trim();
-  if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
-  let m = s.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-  if(m) return `${m[3]}-${m[2]}-${m[1]}`;
+  if(/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)){
+    const p = s.split("-");
+    return `${p[0]}-${String(p[1]).padStart(2,"0")}-${String(p[2]).padStart(2,"0")}`;
+  }
 
-  m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if(m) return `${m[3]}-${m[2]}-${m[1]}`;
+  let m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if(m){
+    let dia = Number(m[1]);
+    let mes = Number(m[2]);
+    let anio = Number(m[3]);
+    if(anio < 100) anio = 2000 + anio;
+
+    if(dia >= 1 && dia <= 31 && mes >= 1 && mes <= 12){
+      return `${anio}-${String(mes).padStart(2,"0")}-${String(dia).padStart(2,"0")}`;
+    }
+  }
 
   return "";
 }
@@ -906,14 +916,27 @@ function readWorkbookFile(file, callback){
   reader.onload = function(e){
     try{
       let workbook;
+
       if(file.name.toLowerCase().endsWith(".csv")){
-        workbook = XLSX.read(e.target.result, { type:"string" });
+        workbook = XLSX.read(e.target.result, {
+          type: "string",
+          FS: ";"
+        });
       }else{
-        workbook = XLSX.read(new Uint8Array(e.target.result), { type:"array" });
+        workbook = XLSX.read(new Uint8Array(e.target.result), {
+          type: "array",
+          cellDates: false
+        });
       }
 
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sheet, { defval:"" });
+
+      const rows = XLSX.utils.sheet_to_json(sheet, {
+        defval: "",
+        raw: false,
+        dateNF: "dd/mm/yyyy"
+      });
+
       callback(null, rows);
     }catch(err){
       callback(err);
@@ -921,7 +944,7 @@ function readWorkbookFile(file, callback){
   };
 
   if(file.name.toLowerCase().endsWith(".csv")){
-    reader.readAsText(file, "utf-8");
+    reader.readAsText(file, "windows-1252");
   }else{
     reader.readAsArrayBuffer(file);
   }
